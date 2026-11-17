@@ -117,6 +117,7 @@ class MainActivity : Activity() {
         ticker.postDelayed(tickRun, UpdateWatcher.INTERVAL_MS)
         refreshClipStat()
         fontPaint?.invoke()
+        textPaint?.invoke()
         if (splashDone && !Updater.dialogOpen && System.currentTimeMillis() - lastCheck > 60000L) checkUpdate(false)
         val pend = Updater.pending
         if (pend != null && packageManager.canRequestPackageInstalls()) {
@@ -304,10 +305,50 @@ class MainActivity : Activity() {
         return c
     }
 
+    private fun textStyleCard(): View {
+        val c = card("Text style", "Change how the words you type look. Also on the keyboard: tap the A icon.")
+        val hs = HorizontalScrollView(this)
+        hs.isHorizontalScrollBarEnabled = false
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        val chipsT = ArrayList<Pair<Int, TextView>>()
+        fun paint() {
+            val sel = Prefs.getI(this, "textstyle", 0)
+            for ((i, t) in chipsT) {
+                t.background = if (i == sel) gradientPill() else roundBg(Pal.BG, 14, Pal.STROKE, 1)
+                t.setTextColor(if (i == sel) Color.WHITE else Pal.MUTED)
+            }
+        }
+        val probe = android.graphics.Paint()
+        for (i in TextStyles.names.indices) {
+            if (!TextStyles.supported(i, probe)) continue
+            val t = tv(TextStyles.sample(i) + "\n" + TextStyles.names[i], 15f, Pal.MUTED)
+            t.gravity = Gravity.CENTER
+            t.setPadding(dp(12), dp(12), dp(12), dp(12))
+            val lp = LinearLayout.LayoutParams(dp(104), WRAP)
+            lp.rightMargin = dp(10)
+            row.addView(t, lp)
+            chipsT.add(Pair(i, t))
+            t.setOnClickListener {
+                Prefs.setI(this, "textstyle", i)
+                kv.reload()
+                paint()
+            }
+        }
+        paint()
+        hs.addView(row)
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(14)
+        c.addView(hs, lp)
+        textPaint = { paint() }
+        return c
+    }
+
+    private var textPaint: (() -> Unit)? = null
     private var fontPaint: (() -> Unit)? = null
 
     private fun keyFontCard(): View {
-        val c = card("Key font", "Tap one here, or tap the A icon on the keyboard to switch. Zeta Bold puts *stars* around every word you type.")
+        val c = card("Key font", "How the keys look. You can also switch it from the A icon on the keyboard.")
         val hs = HorizontalScrollView(this)
         hs.isHorizontalScrollBarEnabled = false
         val row = LinearLayout(this)
@@ -536,6 +577,7 @@ class MainActivity : Activity() {
         col.addView(shapeCard())
         col.addView(rgbCard())
         col.addView(photoCard())
+        col.addView(textStyleCard())
         col.addView(keyFontCard())
         col.addView(clipManagerCard())
         col.addView(settingsCard())

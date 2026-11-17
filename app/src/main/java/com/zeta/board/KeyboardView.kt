@@ -37,7 +37,6 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val CLIPBOARD = 4
         const val LEFT = 5
         const val RIGHT = 6
-        const val FONT = 7
 
         private const val K_CHAR = 0
         private const val K_SHIFT = 1
@@ -47,6 +46,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         private const val K_ENTER = 5
         private const val K_CAT = 6
         private const val K_PAD = 7
+        private const val K_STYLE = 8
+        private const val K_FONTKEY = 9
     }
 
     private class Key(
@@ -74,7 +75,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private val dm = ctx.resources.displayMetrics.density
     private fun dp(v: Float) = v * dm
 
-    // layers: 0 abc, 1 symbols, 2 more symbols, 3 sinhala, 4 emoji
+    // layers: 0 abc, 1 symbols, 2 more symbols, 3 sinhala, 4 emoji, 5 text style
     private var layer = 0
     private var shift = 0
     private var emojiCat = 1
@@ -82,8 +83,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private var swiping = false
     private var downInGrid = false
     private val emojiCache = HashMap<Int, List<String>>()
-    private var fontFlash: String? = null
-    private val clearFlash = Runnable { fontFlash = null; invalidate() }
+    private var textStyle = 0
+    private var styleList: List<Int> = listOf(0)
+    private val brandTf: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     private var keyFontSel = -1
     private var emojiPage = 0
     private var emojiPages = 1
@@ -226,6 +228,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
             keyFontSel = ksel
             tp.typeface = KbFonts.preset(ksel)
         }
+        textStyle = Prefs.getI(c, "textstyle", 0)
+        // only offer styles this phone can really draw (no empty boxes)
+        styleList = TextStyles.names.indices.filter { TextStyles.supported(it, tp) }
+        if (textStyle !in styleList) textStyle = 0
         val bf = KbBg.file(c)
         val stamp = if (bf.exists()) bf.lastModified() + bf.length() else 0L
         if (stamp != bgStamp) {
@@ -300,6 +306,19 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 val marks = listOf("\u0DCF", "\u0DD0", "\u0DD1", "\u0DD2", "\u0DD3", "\u0DD4", "\u0DD6", "\u0DD9", "\u0DDC", "\u0DCA")
                 out.add(marks.map { m -> Key("\u25CC" + m, K_CHAR, out = m) } + Key("", K_DEL, 1.3f, icon = R.drawable.ic_backspace))
                 out.add(bottom(2))
+            }
+            5 -> {
+                for (chunk in styleList.chunked(4)) {
+                    val r = ArrayList<Key>()
+                    for (i in chunk) r.add(Key(TextStyles.sample(i), K_STYLE, 1f, arg = i))
+                    while (r.size < 4) r.add(Key("", K_PAD))
+                    out.add(r)
+                }
+                val bot = ArrayList<Key>()
+                bot.add(Key("ABC", K_LAYER, 1.2f, arg = 0))
+                bot.add(Key("", K_FONTKEY, 2.6f))
+                bot.add(Key("", K_DEL, 1.2f, icon = R.drawable.ic_backspace))
+                out.add(bot)
             }
             else -> {
                 val eRows = if (numRow) 4 else 3
@@ -491,17 +510,36 @@ class KeyboardView(ctx: Context) : View(ctx) {
         c.drawRoundRect(rect, dp(8f), dp(8f), p)
         Logo.draw(c, context, lx, ly, lx + s, ly + s, dp(8f))
 
-        tp.textAlign = Paint.Align.LEFT
-        tp.letterSpacing = 0.12f
-        tp.textSize = dp(12f)
-        tp.color = t.text
-        tp.alpha = 200
-        c.drawText(fontFlash ?: (if (layer == 4) Emojis.cats[emojiCat].name else "ZETA BOARD"), lx + s + dp(8f), baseline(h / 2f), tp)
-        tp.letterSpacing = 0f
-
         for (i in 0..3) {
             val right = width - dp(6f) - (3 - i) * dp(44f)
             toolRects[i].set(right - dp(44f), 0f, right, h)
+        }
+        val savedTf = tp.typeface
+        tp.typeface = brandTf
+        tp.textAlign = Paint.Align.LEFT
+        tp.letterSpacing = 0.1f
+        tp.color = t.text
+        tp.alpha = 200
+        val title = when (layer) {
+            4 -> Emojis.cats[emojiCat].name
+            5 -> "TEXT STYLE"
+            else -> "ZETA BOARD"
+        }
+        val pageW = if (layer == 4 && emojiPages > 1) dp(34f) else 0f
+        val tx = lx + s + dp(8f)
+        val maxW = toolRects[0].left - dp(6f) - pageW - tx
+        var ts = dp(12f)
+        tp.textSize = ts
+        while (tp.measureText(title) > maxW && ts > dp(8f)) {
+            ts -= dp(0.5f)
+            tp.textSize = ts
+        }
+        val n = tp.breakText(title, true, maxW.coerceAtLeast(1f), null)
+        c.drawText(title, 0, n.coerceAtLeast(0), tx, baseline(h / 2f), tp)
+        tp.letterSpacing = 0f
+        tp.typeface = savedTf
+
+        for (i in 0..3) {
             if (pressedTool == i) {
                 p.color = t.accent
                 p.alpha = 90
@@ -528,6 +566,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val shiftOn = k.kind == K_SHIFT && shift > 0
         val bg = when {
             isP -> blend(t.key, t.accent, 0.55f)
+            k.kind == K_STYLE && k.arg == textStyle -> t.accent
             k.kind == K_ENTER || catSel || shiftOn -> t.accent
             k.kind == K_CHAR || k.kind == K_SPACE -> t.key
             else -> t.special
@@ -552,7 +591,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
             }
             if ((rgb and 1) != 0) drawRgbKey(c, k, isP)
         }
-        val fg = if (k.kind == K_ENTER || catSel || shiftOn) t.accentText else t.text
+        val styleSel = k.kind == K_STYLE && k.arg == textStyle
+        val fg = if (k.kind == K_ENTER || catSel || shiftOn || styleSel) t.accentText else t.text
         if (k.icon != 0) {
             icon(c, k.icon, k.r, fg, dp(22f))
             if (k.kind == K_SHIFT && shift == 2) {
@@ -568,11 +608,28 @@ class KeyboardView(ctx: Context) : View(ctx) {
             c.drawText(k.label, k.r.centerX(), baselineE(k.r.centerY()), ep)
             return
         }
+        if (k.kind == K_STYLE) {
+            tp.color = fg
+            tp.alpha = 255
+            tp.textSize = rh * 0.38f
+            c.drawText(k.label, k.r.centerX(), baseline(k.r.top + rh * 0.42f), tp)
+            tp.textSize = rh * 0.17f
+            tp.alpha = 170
+            c.drawText(TextStyles.names[k.arg], k.r.centerX(), baseline(k.r.top + rh * 0.8f), tp)
+            return
+        }
+        if (k.kind == K_FONTKEY) {
+            tp.color = fg
+            tp.alpha = 255
+            tp.textSize = rh * 0.27f
+            c.drawText("Key font: " + KbFonts.names[keyFontSel.coerceAtLeast(0)] + "  \u25B6", k.r.centerX(), baseline(k.r.centerY()), tp)
+            return
+        }
         var label = k.label
         tp.color = fg
         when {
             k.kind == K_SPACE -> {
-                label = if (layer == 3) "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD" else "ZETA BOARD"
+                label = if (layer == 3) "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD" else TextStyles.convert(textStyle, "ZETA BOARD")
                 tp.textSize = rh * 0.24f
                 tp.alpha = 140
             }
@@ -802,14 +859,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 theme = Themes.get(n)
             }
             2 -> {
-                val n = (KbFonts.selected(context) + 1) % KbFonts.names.size
-                Prefs.setI(context, "keyfont", n)
-                reload()
-                fontFlash = KbFonts.names[n]
-                handler.removeCallbacks(clearFlash)
-                handler.postDelayed(clearFlash, 1100)
-                listener?.onAction(FONT)
-                invalidate()
+                layer = 5
+                rebuild()
             }
             3 -> listener?.onAction(SETTINGS)
         }
@@ -853,6 +904,16 @@ class KeyboardView(ctx: Context) : View(ctx) {
                     emojiCat = if (emojiList(Emojis.RECENT).isNotEmpty()) Emojis.RECENT else 1
                 }
                 rebuild()
+            }
+            K_STYLE -> {
+                textStyle = k.arg
+                Prefs.setI(context, "textstyle", textStyle)
+                invalidate()
+            }
+            K_FONTKEY -> {
+                val n = (KbFonts.selected(context) + 1) % KbFonts.names.size
+                Prefs.setI(context, "keyfont", n)
+                reload()
             }
             K_CAT -> {
                 emojiCat = k.arg

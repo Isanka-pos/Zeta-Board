@@ -150,10 +150,9 @@ object Emojis {
     }
 }
 
-/** Key font presets. Switch them in the app or with the "A" icon on the keyboard toolbar. */
+/** Key font presets (how the keys look). Switch in the app or from the text-style panel on the keyboard. */
 object KbFonts {
-    val names = listOf("Default", "Clean", "Light", "Condensed", "Serif", "Mono", "Casual", "Cursive", "Black", "Zeta Bold")
-    const val ZETA_BOLD = 9
+    val names = listOf("Default", "Clean", "Light", "Condensed", "Serif", "Mono", "Casual", "Cursive", "Black")
 
     private val families = listOf(
         "sans-serif-medium", "sans-serif", "sans-serif-light", "sans-serif-condensed",
@@ -162,14 +161,61 @@ object KbFonts {
 
     fun selected(c: Context): Int {
         var v = Prefs.getI(c, "keyfont", 0)
-        if (v == 10) v = ZETA_BOLD // older build stored Zeta Bold as 10
         return if (v in names.indices) v else 0
     }
 
     fun preset(i: Int): Typeface {
-        if (i == ZETA_BOLD) return Typeface.create("sans-serif", Typeface.BOLD)
         return Typeface.create(families.getOrNull(i) ?: families[0], Typeface.NORMAL)
     }
 
     fun keyTypeface(c: Context): Typeface = preset(selected(c))
+}
+
+/** Fancy Unicode text styles: what you type is converted while typing (Latin letters only). */
+object TextStyles {
+    val names = listOf(
+        "Normal", "Bold", "Bold Italic", "Sans Italic", "Sans Bold Italic", "Script",
+        "Monospace", "Circled", "Squared", "Small Caps", "Canadian", "Flags"
+    )
+
+    private const val SMALL = "\u1D00\u0299\u1D04\u1D05\u1D07\uA730\u0262\u029C\u026A\u1D0A\u1D0B\u029F\u1D0D\u0274\u1D0F\u1D18\u01EB\u0280s\u1D1B\u1D1C\u1D20\u1D21x\u028F\u1D22"
+    private const val CANADIAN = "\u15E9\u15F7\u1455\u15EAE\u1596G\u157CI\u148DK\u146A\u15F0\u144E" +
+        "O\u146D\u146B\u1587\u054FT\u144C\u1431\u15EF\u166DY\u1614"
+
+    fun sample(style: Int): String = convert(style, "Hy")
+
+    /** True when [p] can draw this style's letters (checked per letter, so no empty boxes). */
+    fun supported(style: Int, p: android.graphics.Paint): Boolean {
+        if (style == 0) return true
+        return listOf("H", "y").all { p.hasGlyph(convert(style, it).replace("\u200C", "")) }
+    }
+
+    fun convert(style: Int, s: String): String {
+        if (style <= 0 || style >= names.size) return s
+        val sb = StringBuilder(s.length * 2)
+        for (ch in s) sb.append(map(style, ch))
+        return sb.toString()
+    }
+
+    private fun map(style: Int, ch: Char): String {
+        val up = ch in 'A'..'Z'
+        val lo = ch in 'a'..'z'
+        if (!up && !lo) return ch.toString()
+        val i = if (up) ch - 'A' else ch - 'a'
+        fun cp(base: Int) = String(Character.toChars(base + i))
+        return when (style) {
+            1 -> cp(if (up) 0x1D400 else 0x1D41A)
+            2 -> cp(if (up) 0x1D468 else 0x1D482)
+            3 -> cp(if (up) 0x1D608 else 0x1D622)
+            4 -> cp(if (up) 0x1D63C else 0x1D656)
+            5 -> cp(if (up) 0x1D4D0 else 0x1D4EA)
+            6 -> cp(if (up) 0x1D670 else 0x1D68A)
+            7 -> cp(if (up) 0x24B6 else 0x24D0)
+            8 -> cp(0x1F130)
+            9 -> if (up) ch.toString() else SMALL[i].toString()
+            10 -> CANADIAN[i].toString()
+            11 -> cp(0x1F1E6) + "\u200C" // zero-width non-joiner stops two letters becoming a flag
+            else -> ch.toString()
+        }
+    }
 }
