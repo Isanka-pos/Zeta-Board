@@ -37,6 +37,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val CLIPBOARD = 4
         const val LEFT = 5
         const val RIGHT = 6
+        const val FONT = 7
 
         private const val K_CHAR = 0
         private const val K_SHIFT = 1
@@ -81,7 +82,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private var swiping = false
     private var downInGrid = false
     private val emojiCache = HashMap<Int, List<String>>()
-    private var fontStamp = -1L
+    private var fontFlash: String? = null
+    private val clearFlash = Runnable { fontFlash = null; invalidate() }
     private var keyFontSel = -1
     private var emojiPage = 0
     private var emojiPages = 1
@@ -122,8 +124,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
     private val rect = RectF()
     private val altRect = RectF()
-    private val toolRects = Array(3) { RectF() }
-    private val toolIcons = intArrayOf(R.drawable.ic_paste, R.drawable.ic_palette, R.drawable.ic_tune)
+    private val toolRects = Array(4) { RectF() }
+    private val toolIcons = intArrayOf(R.drawable.ic_paste, R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_tune)
     private val cache = HashMap<Int, Drawable>()
 
     private var pressed: Key? = null
@@ -219,14 +221,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
         rgb = Prefs.getI(c, "rgb", 0)
         rgbSpeed = Prefs.getI(c, "rgbspeed", 5)
         bgDim = Prefs.getI(c, "bgdim", 35)
-        val fs = KbFonts.stamp(c)
-        val ksel = Prefs.getI(c, "keyfont", 0)
-        if (fs != fontStamp || ksel != keyFontSel) {
-            fontStamp = fs
+        val ksel = KbFonts.selected(c)
+        if (ksel != keyFontSel) {
             keyFontSel = ksel
-            tp.typeface = KbFonts.keyTypeface(c)
-            ep.typeface = KbFonts.emojiTypeface(c) ?: Typeface.DEFAULT
-            emojiCache.clear()
+            tp.typeface = KbFonts.preset(ksel)
         }
         val bf = KbBg.file(c)
         val stamp = if (bf.exists()) bf.lastModified() + bf.length() else 0L
@@ -498,11 +496,11 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.textSize = dp(12f)
         tp.color = t.text
         tp.alpha = 200
-        c.drawText(if (layer == 4) Emojis.cats[emojiCat].name else "ZETA BOARD", lx + s + dp(8f), baseline(h / 2f), tp)
+        c.drawText(fontFlash ?: (if (layer == 4) Emojis.cats[emojiCat].name else "ZETA BOARD"), lx + s + dp(8f), baseline(h / 2f), tp)
         tp.letterSpacing = 0f
 
-        for (i in 0..2) {
-            val right = width - dp(6f) - (2 - i) * dp(44f)
+        for (i in 0..3) {
+            val right = width - dp(6f) - (3 - i) * dp(44f)
             toolRects[i].set(right - dp(44f), 0f, right, h)
             if (pressedTool == i) {
                 p.color = t.accent
@@ -803,7 +801,17 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 Prefs.setI(context, "theme", n)
                 theme = Themes.get(n)
             }
-            2 -> listener?.onAction(SETTINGS)
+            2 -> {
+                val n = (KbFonts.selected(context) + 1) % KbFonts.names.size
+                Prefs.setI(context, "keyfont", n)
+                reload()
+                fontFlash = KbFonts.names[n]
+                handler.removeCallbacks(clearFlash)
+                handler.postDelayed(clearFlash, 1100)
+                listener?.onAction(FONT)
+                invalidate()
+            }
+            3 -> listener?.onAction(SETTINGS)
         }
     }
 

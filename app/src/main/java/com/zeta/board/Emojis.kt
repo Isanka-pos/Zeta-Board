@@ -3,8 +3,6 @@ package com.zeta.board
 import android.content.Context
 import android.graphics.Paint
 import android.graphics.Typeface
-import android.net.Uri
-import java.io.File
 
 /** Emoji data + helpers: curated categories, recents, skin tones and whole-emoji deletion. */
 object Emojis {
@@ -152,103 +150,26 @@ object Emojis {
     }
 }
 
-/** Key fonts (presets + an optional font file the user picks) and an optional emoji font file. */
+/** Key font presets. Switch them in the app or with the "A" icon on the keyboard toolbar. */
 object KbFonts {
-    val names = listOf("Default", "Clean", "Light", "Condensed", "Serif", "Mono", "Casual", "Cursive", "Black", "Custom", "Zeta Bold")
-    const val CUSTOM = 9
-    const val ZETA_BOLD = 10
+    val names = listOf("Default", "Clean", "Light", "Condensed", "Serif", "Mono", "Casual", "Cursive", "Black", "Zeta Bold")
+    const val ZETA_BOLD = 9
 
     private val families = listOf(
         "sans-serif-medium", "sans-serif", "sans-serif-light", "sans-serif-condensed",
         "serif", "monospace", "casual", "cursive", "sans-serif-black"
     )
 
-    private fun keyFile(c: Context) = File(c.filesDir, "keyfont.ttf")
-    private fun emojiFile(c: Context) = File(c.filesDir, "emojifont.ttf")
-
-    fun hasKeyFile(c: Context) = keyFile(c).exists()
-    fun hasEmojiFile(c: Context) = emojiFile(c).exists()
-
-    /** Changes whenever a font file changes, so the keyboard knows to rebuild its caches. */
-    fun stamp(c: Context): Long =
-        keyFile(c).let { if (it.exists()) it.lastModified() + it.length() else 0L } * 31 +
-            emojiFile(c).let { if (it.exists()) it.lastModified() + it.length() else 0L }
+    fun selected(c: Context): Int {
+        var v = Prefs.getI(c, "keyfont", 0)
+        if (v == 10) v = ZETA_BOLD // older build stored Zeta Bold as 10
+        return if (v in names.indices) v else 0
+    }
 
     fun preset(i: Int): Typeface {
         if (i == ZETA_BOLD) return Typeface.create("sans-serif", Typeface.BOLD)
-        val f = families.getOrNull(i) ?: families[0]
-        return Typeface.create(f, Typeface.NORMAL)
+        return Typeface.create(families.getOrNull(i) ?: families[0], Typeface.NORMAL)
     }
 
-    fun keyTypeface(c: Context): Typeface {
-        val sel = Prefs.getI(c, "keyfont", 0)
-        if (sel == CUSTOM) {
-            val f = keyFile(c)
-            if (f.exists()) {
-                try {
-                    Typeface.Builder(f).build()?.let { return it }
-                } catch (e: Exception) {
-                }
-            }
-            return preset(0)
-        }
-        return preset(sel)
-    }
-
-    fun customTypeface(c: Context): Typeface? {
-        val f = keyFile(c)
-        if (!f.exists()) return null
-        return try {
-            Typeface.Builder(f).build()
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    fun emojiTypeface(c: Context): Typeface? {
-        val f = emojiFile(c)
-        if (!f.exists()) return null
-        return try {
-            Typeface.Builder(f).build()
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    /** Copies a picked .ttf/.otf into app storage after checking Android can really load it. */
-    fun save(c: Context, uri: Uri, emoji: Boolean): Boolean {
-        val target = if (emoji) emojiFile(c) else keyFile(c)
-        val tmp = File(c.filesDir, "font_tmp.bin")
-        return try {
-            c.contentResolver.openInputStream(uri)?.use { i -> tmp.outputStream().use { o -> i.copyTo(o) } } ?: return false
-            if (tmp.length() < 1024 || tmp.length() > 40L * 1024 * 1024) {
-                tmp.delete()
-                return false
-            }
-            val tf = Typeface.Builder(tmp).build()
-            if (tf == null) {
-                tmp.delete()
-                return false
-            }
-            target.delete()
-            if (!tmp.renameTo(target)) {
-                tmp.delete()
-                return false
-            }
-            if (!emoji) Prefs.setI(c, "keyfont", CUSTOM)
-            true
-        } catch (e: Exception) {
-            tmp.delete()
-            false
-        }
-    }
-
-    fun clearKeyFile(c: Context) {
-        keyFile(c).delete()
-        if (Prefs.getI(c, "keyfont", 0) == CUSTOM) Prefs.setI(c, "keyfont", 0)
-    }
-
-    fun clearEmojiFile(c: Context) {
-        emojiFile(c).delete()
-    }
+    fun keyTypeface(c: Context): Typeface = preset(selected(c))
 }

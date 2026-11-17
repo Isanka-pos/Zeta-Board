@@ -76,7 +76,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     private var wordOpen = false
 
-    private fun zetaBold(): Boolean = Prefs.getI(context, "keyfont", 0) == KbFonts.ZETA_BOLD
+    private fun zetaBold(): Boolean = KbFonts.selected(context) == KbFonts.ZETA_BOLD
 
     private fun isWordCh(s: String): Boolean {
         if (s.isEmpty()) return false
@@ -142,6 +142,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             }
             KeyboardView.CLIPBOARD -> openClipboard()
             KeyboardView.SETTINGS -> out.settings()
+            KeyboardView.FONT -> wordOpen = false
         }
     }
 

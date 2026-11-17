@@ -116,6 +116,7 @@ class MainActivity : Activity() {
         ticker.removeCallbacks(tickRun)
         ticker.postDelayed(tickRun, UpdateWatcher.INTERVAL_MS)
         refreshClipStat()
+        fontPaint?.invoke()
         if (splashDone && !Updater.dialogOpen && System.currentTimeMillis() - lastCheck > 60000L) checkUpdate(false)
         val pend = Updater.pending
         if (pend != null && packageManager.canRequestPackageInstalls()) {
@@ -134,23 +135,6 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if ((requestCode == 78 || requestCode == 79) && resultCode == RESULT_OK) {
-            val uri = data?.data ?: return
-            val forEmoji = requestCode == 79
-            Thread {
-                val ok = KbFonts.save(this, uri, forEmoji)
-                runOnUiThread {
-                    if (ok) {
-                        kv.reload()
-                        if (forEmoji) refreshEmojiFontState() else fontPaint?.invoke()
-                        Toast.makeText(this, "Font applied", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(this, "Android can't use that font file (use .ttf or .otf)", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }.start()
-            return
-        }
         if (requestCode == 77 && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
             Thread {
@@ -321,34 +305,25 @@ class MainActivity : Activity() {
     }
 
     private var fontPaint: (() -> Unit)? = null
-    private lateinit var emojiFontState: TextView
-
-    private fun pickFont(code: Int) {
-        val i = Intent(Intent.ACTION_GET_CONTENT)
-        i.type = "*/*"
-        i.addCategory(Intent.CATEGORY_OPENABLE)
-        startActivityForResult(Intent.createChooser(i, "Select font file (.ttf / .otf)"), code)
-    }
 
     private fun keyFontCard(): View {
-        val c = card("Key font", "Zeta Bold = bold keys, and every word you type gets *stars* around it (bold in WhatsApp / Telegram)")
+        val c = card("Key font", "Tap one here, or tap the A icon on the keyboard to switch. Zeta Bold puts *stars* around every word you type.")
         val hs = HorizontalScrollView(this)
         hs.isHorizontalScrollBarEnabled = false
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         val chipsF = ArrayList<TextView>()
         fun paint() {
-            val sel = Prefs.getI(this, "keyfont", 0)
+            val sel = KbFonts.selected(this)
             chipsF.forEachIndexed { i, t ->
                 t.background = if (i == sel) gradientPill() else roundBg(Pal.BG, 14, Pal.STROKE, 1)
                 t.setTextColor(if (i == sel) Color.WHITE else Pal.MUTED)
-                if (i == KbFonts.CUSTOM) t.typeface = KbFonts.customTypeface(this) ?: Typeface.DEFAULT
             }
         }
         fontPaint = { paint() }
         KbFonts.names.forEachIndexed { i, name ->
-            val t = tv("Aa Zeta\n" + (if (i == KbFonts.CUSTOM) "My file" else name), 14f, Pal.MUTED)
-            if (i != KbFonts.CUSTOM) t.typeface = KbFonts.preset(i)
+            val t = tv("Aa Zeta\n" + name, 14f, Pal.MUTED)
+            t.typeface = KbFonts.preset(i)
             t.gravity = Gravity.CENTER
             t.setPadding(dp(14), dp(12), dp(14), dp(12))
             val lp = LinearLayout.LayoutParams(dp(104), WRAP)
@@ -356,13 +331,9 @@ class MainActivity : Activity() {
             row.addView(t, lp)
             chipsF.add(t)
             t.setOnClickListener {
-                if (i == KbFonts.CUSTOM && !KbFonts.hasKeyFile(this)) {
-                    pickFont(78)
-                } else {
-                    Prefs.setI(this, "keyfont", i)
-                    kv.reload()
-                    paint()
-                }
+                Prefs.setI(this, "keyfont", i)
+                kv.reload()
+                paint()
             }
         }
         paint()
@@ -370,56 +341,47 @@ class MainActivity : Activity() {
         val lp = LinearLayout.LayoutParams(MATCH, WRAP)
         lp.topMargin = dp(14)
         c.addView(hs, lp)
-
-        val btns = LinearLayout(this)
-        btns.orientation = LinearLayout.HORIZONTAL
-        val choose = pill("Choose font file") { pickFont(78) }
-        val reset = pill("Reset") {
-            KbFonts.clearKeyFile(this)
-            Prefs.setI(this, "keyfont", 0)
-            kv.reload()
-            paint()
-        }
-        reset.background = roundBg(Pal.BG, 30, Pal.STROKE, 1)
-        val l1 = LinearLayout.LayoutParams(0, WRAP, 1f)
-        l1.rightMargin = dp(10)
-        btns.addView(choose, l1)
-        btns.addView(reset, LinearLayout.LayoutParams(0, WRAP, 1f))
-        val blp = LinearLayout.LayoutParams(MATCH, WRAP)
-        blp.topMargin = dp(14)
-        c.addView(btns, blp)
         return c
     }
 
-    private fun refreshEmojiFontState() {
-        emojiFontState.text = if (KbFonts.hasEmojiFile(this)) "Using your emoji font in the emoji panel" else "Using the phone's own emoji"
-    }
+    private fun aboutCard(): View {
+        val c = card("About", "Zeta Board  \u2022  v" + Updater.currentName(this))
+        c.gravity = Gravity.CENTER_HORIZONTAL
+        for (i in 0 until c.childCount) (c.getChildAt(i) as? TextView)?.gravity = Gravity.CENTER
+        val d = tv("A premium keyboard with themes, a clipboard manager and Sinhala typing.", 13f, Pal.MUTED)
+        d.gravity = Gravity.CENTER
+        d.setPadding(0, dp(10), 0, 0)
+        c.addView(d)
+        val owner = tv("Owner: Isanka Dev", 13f, Color.WHITE, true)
+        owner.gravity = Gravity.CENTER
+        owner.setPadding(0, dp(8), 0, 0)
+        c.addView(owner)
 
-    private fun emojiFontCard(): View {
-        val c = card("Emoji style", "Swipe pages, hold a hand for skin tones, recents are saved")
-        emojiFontState = tv("", 13f, Pal.MUTED)
-        emojiFontState.setPadding(0, dp(12), 0, 0)
-        c.addView(emojiFontState)
-        refreshEmojiFontState()
-        val note = tv("Optional: pick a colour emoji font (.ttf) to change how the emoji panel looks. Fonts in Apple's sbix format are not supported by Android.", 12f, Pal.MUTED)
-        note.setPadding(0, dp(6), 0, 0)
-        c.addView(note)
-        val btns = LinearLayout(this)
-        btns.orientation = LinearLayout.HORIZONTAL
-        val choose = pill("Choose emoji font") { pickFont(79) }
-        val reset = pill("Reset") {
-            KbFonts.clearEmojiFile(this)
-            kv.reload()
-            refreshEmojiFontState()
+        val btn = LinearLayout(this)
+        btn.orientation = LinearLayout.HORIZONTAL
+        btn.gravity = Gravity.CENTER
+        btn.setPadding(dp(22), dp(12), dp(22), dp(12))
+        btn.background = roundBg(Color.parseColor("#25D366"), 30)
+        val ic = ImageView(this)
+        ic.setImageResource(R.drawable.ic_whatsapp)
+        btn.addView(ic, LinearLayout.LayoutParams(dp(22), dp(22)))
+        val label = tv("Contact owner", 14f, Color.WHITE, true)
+        label.setPadding(dp(10), 0, 0, 0)
+        btn.addView(label)
+        btn.setOnClickListener { v ->
+            v.animate().scaleX(0.94f).scaleY(0.94f).setDuration(70).withEndAction {
+                v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://wa.me/94765480861")))
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Could not open WhatsApp", Toast.LENGTH_SHORT).show()
+                }
+            }.start()
         }
-        reset.background = roundBg(Pal.BG, 30, Pal.STROKE, 1)
-        val l1 = LinearLayout.LayoutParams(0, WRAP, 1f)
-        l1.rightMargin = dp(10)
-        btns.addView(choose, l1)
-        btns.addView(reset, LinearLayout.LayoutParams(0, WRAP, 1f))
-        val blp = LinearLayout.LayoutParams(MATCH, WRAP)
-        blp.topMargin = dp(14)
-        c.addView(btns, blp)
+        val lp = LinearLayout.LayoutParams(WRAP, WRAP)
+        lp.gravity = Gravity.CENTER_HORIZONTAL
+        lp.topMargin = dp(16)
+        c.addView(btn, lp)
         return c
     }
 
@@ -575,10 +537,10 @@ class MainActivity : Activity() {
         col.addView(rgbCard())
         col.addView(photoCard())
         col.addView(keyFontCard())
-        col.addView(emojiFontCard())
         col.addView(clipManagerCard())
         col.addView(settingsCard())
-        val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Malith", 12f, Pal.MUTED)
+        col.addView(aboutCard())
+        val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Dev", 12f, Pal.MUTED)
         foot.gravity = Gravity.CENTER
         foot.setPadding(0, dp(24), 0, 0)
         col.addView(foot, LinearLayout.LayoutParams(MATCH, WRAP))

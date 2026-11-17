@@ -8,5 +8,7 @@
 - Emoji: hold a hand/person emoji for skin tones, unsupported emoji are hidden instead of showing empty boxes
 - Fixed: backspace now removes a whole emoji (flags, families, hearts, skin tones) in one tap, in apps and in the clipboard editor
 - Clipboard panel: empty-state text is now centered
-- New: Key font picker (9 presets + your own .ttf/.otf) and optional custom emoji font
 - New key font preset "Zeta Bold": bold keys + every typed word is wrapped as *word*
+- Key font: removed custom file picker and emoji font option; tap the new A icon on the keyboard toolbar to switch font presets
+- New About card with a WhatsApp "Contact owner" button
+- Owner name: Isanka Dev (About card + footer)
