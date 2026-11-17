@@ -24,16 +24,14 @@ import android.widget.TextView
 import androidx.annotation.RequiresApi
 
 /**
- * Screenshot privacy, with two modes (setting "Block screenshots" in the Privacy card):
+ * Screenshot privacy. The mode is fixed and cannot be changed by the user:
  *
- *  - BLOCK (default, every Android version): all screens and dialogs use FLAG_SECURE. Screenshots and screen
- *    recordings are blocked and the "Recent apps" preview is hidden. Android itself tells the user that the
- *    screenshot was blocked.
- *  - WARN (Android 14+ only): screenshots are allowed, but the moment one is taken a warning banner slides in
- *    from the top and a heads-up notification is shown.
+ *  - Android 14+: screenshots are detected. The moment one is taken, a warning banner slides in from the top
+ *    of the screen and a heads-up notification is shown.
+ *  - Android 13 and older: Android has no screenshot detection, so every screen and dialog uses FLAG_SECURE
+ *    instead and screenshots / screen recordings are blocked.
  *
- * The two cannot run together: Android only reports screenshots that really happened, and a FLAG_SECURE window
- * is never reported (the capture is refused before the app is told).
+ * (Android never reports a screenshot of a FLAG_SECURE window, so blocking and warning cannot run together.)
  */
 object ScreenGuard {
     private const val CHANNEL = "privacy"
@@ -48,13 +46,11 @@ object ScreenGuard {
     private val live = ArrayList<Activity>() // started (visible) activities
     private var lastWarn = 0L
 
-    const val KEY = "shot_block"
-
     /** Screenshot detection exists only from Android 14. */
     fun canWarn(): Boolean = Build.VERSION.SDK_INT >= 34
 
-    /** True when screenshots must be blocked (always on Android 13 and older). */
-    fun blocking(ctx: Context): Boolean = !canWarn() || Prefs.getB(ctx.applicationContext, KEY, true)
+    /** True when windows are blocked with FLAG_SECURE: only on Android 13 and older, where warning is impossible. */
+    fun blocking(@Suppress("UNUSED_PARAMETER") ctx: Context): Boolean = !canWarn()
 
     /** Call once from Application.onCreate(). Covers every Activity of the app automatically. */
     fun install(app: Application) {
@@ -86,7 +82,7 @@ object ScreenGuard {
         })
     }
 
-    /** Puts [a] in the current mode: FLAG_SECURE in BLOCK mode, screenshot listener in WARN mode. */
+    /** Android 14+: listen for screenshots. Older Android: FLAG_SECURE. */
     private fun applyMode(a: Activity) {
         val block = blocking(a)
         setSecure(a.window, block)
@@ -95,12 +91,7 @@ object ScreenGuard {
         }
     }
 
-    /** Re-applies the mode on every screen that is open right now (call after the setting changes). */
-    fun refreshAll() {
-        main.post { ArrayList(live).forEach { if (!it.isFinishing && !it.isDestroyed) applyMode(it) } }
-    }
-
-    /** Blocks screenshots for this window (dialogs, keyboard panels) when BLOCK mode is on. */
+    /** Blocks screenshots for this window (dialogs, keyboard panels) on Android 13 and older. */
     fun secure(w: Window?) {
         val c = w?.context ?: return
         setSecure(w, blocking(c))
@@ -138,7 +129,7 @@ object ScreenGuard {
 
     // ---- the warning ----
 
-    /** Shows the top banner on [a] and a heads-up notification (WARN mode). */
+    /** Shows the top banner on [a] and a heads-up notification. */
     fun warn(a: Activity) {
         val now = System.currentTimeMillis()
         if (now - lastWarn < DEBOUNCE_MS) return
