@@ -136,6 +136,7 @@ class ZetaIME : InputMethodService() {
         h.kv.startInput(layer, if (cap) 1 else 0)
         if (!secure) h.onStartInput()
         captureClip(false)
+        UpdateWatcher.checkSoon(this)
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {

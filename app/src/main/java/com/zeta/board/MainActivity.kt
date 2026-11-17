@@ -61,7 +61,7 @@ class MainActivity : Activity() {
     private val sections = ArrayList<Pair<View, Set<String>>>()
     private var curGroup = "home"
 
-    // re-checks for updates every 45 minutes while the app is on screen
+    // re-checks for updates every 15 minutes while the app is on screen
     private val ticker = Handler(Looper.getMainLooper())
     private val tickRun = object : Runnable {
         override fun run() {

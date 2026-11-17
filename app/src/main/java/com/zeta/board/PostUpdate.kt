@@ -51,7 +51,7 @@ object PostUpdate {
 
 /**
  * Runs right after Zeta Board has been updated (even if the app is not opened) and after a reboot.
- * It posts the "Zeta Board updated" notification and makes sure the 45-minute update check is scheduled.
+ * It posts the "Zeta Board updated" notification and makes sure the 15-minute update check is scheduled.
  */
 class UpdateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

@@ -6,7 +6,7 @@
 
 ## Features
 - Clipboard Manager (open it from the app home screen, or the clipboard icon on the keyboard)
-- Update check every 45 minutes (background job + timer while the keyboard/app is running)
+- Update check every 15 minutes (background job + timer while the keyboard/app is running) and each time the keyboard opens (at most once every 4 minutes)
 - Logo: replace `app/src/main/res/drawable-nodpi/app_logo.jpg` (square, 512x512) to change it
 - Emoji panel: categories, recents, skin tones (hold), swipe pages. Key font + emoji font options are in the app home screen.
 
@@ -16,7 +16,7 @@
 - **Sticker Maker** opens the in-app sticker screen (same engine as the keyboard sticker panel): Photo / Clipboard, history grid, tap a sticker to send it to WhatsApp, share it or delete it.
 
 ## Update notifications
-- New version ready: push notification + warning banner at the top of the app + red dot on the menu button (checked every 45 minutes).
+- New version ready: heads-up notification that drops down from the top of the screen (sound + vibration) + warning banner at the top of the app + red dot on the menu button (checked every 15 minutes and whenever the keyboard opens).
 - After the update is installed: "Zeta Board updated" notification and a "What's new" screen on the next start.
 
 ## Sticker Maker

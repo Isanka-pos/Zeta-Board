@@ -12,16 +12,18 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Handler
 import android.os.Looper
 
 object UpdateScheduler {
     private const val ID = 4108
     private const val OLD_ID = 4107 // the old 6-hour job, removed on upgrade
-    const val INTERVAL_MIN = 45L
+    const val INTERVAL_MIN = 15L
     private const val INTERVAL_MS = INTERVAL_MIN * 60L * 1000L
 
-    /** Checks for a new version every 45 minutes (needs network, survives reboot). */
+    /** Checks for a new version every 15 minutes, the shortest interval Android allows (needs network, survives reboot). */
     fun schedule(ctx: Context) {
         try {
             val js = ctx.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
@@ -39,10 +41,11 @@ object UpdateScheduler {
     }
 }
 
-/** A second 45-minute timer that runs while the keyboard (or the app) process is alive, so checks are not missed. */
+/** A second 15-minute timer that runs while the keyboard (or the app) process is alive, so checks are not missed. */
 object UpdateWatcher {
-    const val INTERVAL_MS = 45L * 60L * 1000L
-    private const val MIN_GAP_MS = 40L * 60L * 1000L
+    const val INTERVAL_MS = 15L * 60L * 1000L
+    private const val MIN_GAP_MS = 12L * 60L * 1000L
+    private const val SOON_GAP_MS = 4L * 60L * 1000L
 
     private val handler = Handler(Looper.getMainLooper())
     private var appCtx: Context? = null
@@ -61,6 +64,19 @@ object UpdateWatcher {
         if (started) return
         started = true
         handler.postDelayed(tick, INTERVAL_MS)
+    }
+
+    /**
+     * Quick extra check used whenever the keyboard opens: a new version is announced within moments of the phone
+     * being used, not only on the 15-minute rhythm. At most one request every 4 minutes.
+     */
+    fun checkSoon(ctx: Context) {
+        val app = ctx.applicationContext
+        val now = System.currentTimeMillis()
+        val gap = now - Prefs.getL(app, "last_soon_check", 0L)
+        if (gap in 0 until SOON_GAP_MS) return
+        Prefs.setL(app, "last_soon_check", now)
+        checkAndNotify(app, true) {}
     }
 
     /** Looks for a new version and shows a notification once per version. [done] is always called on the main thread. */
@@ -128,7 +144,8 @@ object UpdateStore {
 }
 
 object UpdateNotifier {
-    private const val CHANNEL = "updates"
+    private const val CHANNEL = "updates_alert"
+    private const val OLD_CHANNEL = "updates"
     const val ID_AVAILABLE = 7001
     const val ID_INSTALLED = 7002
 
@@ -136,11 +153,25 @@ object UpdateNotifier {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (!nm.areNotificationsEnabled()) return null
         if (nm.getNotificationChannel(CHANNEL) == null) {
+            // HIGH importance + sound + vibration makes Android show the notification as a heads-up banner at the top
             val ch = NotificationChannel(CHANNEL, "App updates", NotificationManager.IMPORTANCE_HIGH)
             ch.description = "Tells you when a new Zeta Board version is ready or was installed"
             ch.enableLights(true)
             ch.lightColor = Pal.PURPLE
+            ch.enableVibration(true)
+            ch.vibrationPattern = longArrayOf(0L, 250L, 150L, 250L)
+            ch.setShowBadge(true)
+            ch.lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            ch.setSound(
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
             nm.createNotificationChannel(ch)
+            // replaces the older "updates" channel, whose settings Android does not let an app change afterwards
+            if (nm.getNotificationChannel(OLD_CHANNEL) != null) nm.deleteNotificationChannel(OLD_CHANNEL)
         }
         return nm
     }
@@ -164,6 +195,9 @@ object UpdateNotifier {
                 .setLargeIcon(Logo.square(ctx, 192))
                 .setColor(Pal.PURPLE)
                 .setCategory(Notification.CATEGORY_RECOMMENDATION)
+                .setPriority(Notification.PRIORITY_HIGH)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setShowWhen(true)
                 .setContentTitle("\u26A0 Update available: Zeta Board v" + info.name)
                 .setContentText("Update now to get the latest fixes and features.")
                 .setSubText("Update available")

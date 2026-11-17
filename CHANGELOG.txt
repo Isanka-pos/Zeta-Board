@@ -1,4 +1,5 @@
 - NEW: Screenshot warning: on Android 14+ a warning banner slides in from the top and a notification appears the moment a screenshot is taken in the app. On older Android versions screenshots are blocked instead
+- IMPROVED: Update alert: as soon as a new version is found, a heads-up notification drops down from the top of the screen with sound and vibration. Checks now run every 15 minutes and every time the keyboard opens
 - NEW: Menu button (three lines, top right of the app). Opens the category menu: Home, Setup, Appearance, Typing & Fonts, Clipboard, Sticker Maker, Updates, About. Each category shows only its own cards
 - NEW: Sticker Maker is now also inside the app (menu -> Sticker Maker): make a sticker from a photo or a copied image, see all stickers, send to WhatsApp, share or delete
 - NEW: Update warning: a notification, a warning banner at the top of the app and a red dot on the menu button tell you as soon as a new version is ready
