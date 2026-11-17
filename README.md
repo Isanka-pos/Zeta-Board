@@ -10,6 +10,15 @@
 - Logo: replace `app/src/main/res/drawable-nodpi/app_logo.jpg` (square, 512x512) to change it
 - Emoji panel: categories, recents, skin tones (hold), swipe pages. Key font + emoji font options are in the app home screen.
 
+## App menu (three lines button)
+- Tap the three-line button at the top right of the app home screen to open the category menu.
+- Categories: Home (everything), Setup, Appearance, Typing & Fonts, Clipboard, Sticker Maker, Updates, About.
+- **Sticker Maker** opens the in-app sticker screen (same engine as the keyboard sticker panel): Photo / Clipboard, history grid, tap a sticker to send it to WhatsApp, share it or delete it.
+
+## Update notifications
+- New version ready: push notification + warning banner at the top of the app + red dot on the menu button (checked every 45 minutes).
+- After the update is installed: "Zeta Board updated" notification and a "What's new" screen on the next start.
+
 ## Sticker Maker
 - Tap the sticker icon (left of the clipboard icon) on the keyboard toolbar.
 - **Photo** opens the picker, **Clipboard** uses an image you copied. You can also use Share -> "Zeta Sticker" from the gallery.

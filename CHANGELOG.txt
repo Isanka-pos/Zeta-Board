@@ -1,3 +1,8 @@
+- NEW: Menu button (three lines, top right of the app). Opens the category menu: Home, Setup, Appearance, Typing & Fonts, Clipboard, Sticker Maker, Updates, About. Each category shows only its own cards
+- NEW: Sticker Maker is now also inside the app (menu -> Sticker Maker): make a sticker from a photo or a copied image, see all stickers, send to WhatsApp, share or delete
+- NEW: Update warning: a notification, a warning banner at the top of the app and a red dot on the menu button tell you as soon as a new version is ready
+- NEW: After an update you get a "Zeta Board updated" notification and a "What's new" screen
+- Updates card: shows the current version, when the last check happened and a "Check for updates" button
 - FIXED: keyboard background was see-through (apps showed behind the keys) after pressing keys / popups
 - NEW Sticker Maker: tap the sticker icon on the keyboard toolbar, choose Photo (or copy an image and tap Clipboard) and a WhatsApp-ready 512x512 WebP sticker is created, saved in a history grid and sent with one tap (hold to delete). Also available as Share -> Zeta Sticker from the gallery.
 - New Zeta Board logo (app icon, splash, keyboard, notifications)

@@ -73,10 +73,18 @@ object UpdateWatcher {
             return
         }
         Updater.check(app) { info, err ->
-            if (err == null) Prefs.setL(app, "last_bg_check", System.currentTimeMillis())
-            if (info != null && !Updater.dialogOpen && info.code > Prefs.getI(app, "notified_code", 0).toLong()) {
-                Prefs.setI(app, "notified_code", info.code.toInt())
-                UpdateNotifier.show(app, info)
+            if (err == null) {
+                val t = System.currentTimeMillis()
+                Prefs.setL(app, "last_bg_check", t)
+                Prefs.setL(app, "last_ok_check", t)
+                if (info == null) UpdateStore.dropRetracted(app)
+            }
+            if (info != null) {
+                UpdateStore.save(app, info)
+                if (!Updater.dialogOpen && info.code > Prefs.getI(app, "notified_code", 0).toLong()) {
+                    Prefs.setI(app, "notified_code", info.code.toInt())
+                    UpdateNotifier.show(app, info)
+                }
             }
             done()
         }
@@ -92,41 +100,124 @@ class UpdateJobService : JobService() {
     override fun onStopJob(params: JobParameters): Boolean = true
 }
 
+/** Remembers the newest version found online, so the in-app warning banner and the "what's new" screen can use it. */
+object UpdateStore {
+    fun save(c: Context, i: Updater.Info) {
+        val app = c.applicationContext
+        Prefs.setL(app, "avail_code", i.code)
+        Prefs.setS(app, "avail_name", i.name)
+        Prefs.setS(app, "avail_notes", i.notes)
+        Prefs.setS(app, "avail_url", i.apkUrl)
+    }
+
+    /** The update that is waiting to be installed, or null when the app is already up to date. */
+    fun pending(c: Context): Updater.Info? {
+        val app = c.applicationContext
+        val code = Prefs.getL(app, "avail_code", 0L)
+        if (code <= Updater.currentCode(app)) return null
+        val url = Prefs.getS(app, "avail_url", "")
+        if (url.isEmpty()) return null
+        return Updater.Info(code, Prefs.getS(app, "avail_name", "1.0.$code"), Prefs.getS(app, "avail_notes", ""), url)
+    }
+
+    /** A successful check found nothing newer, so an update that was announced earlier has been withdrawn. */
+    fun dropRetracted(c: Context) {
+        val app = c.applicationContext
+        if (Prefs.getL(app, "avail_code", 0L) > Updater.currentCode(app)) Prefs.setL(app, "avail_code", 0L)
+    }
+}
+
 object UpdateNotifier {
     private const val CHANNEL = "updates"
+    const val ID_AVAILABLE = 7001
+    const val ID_INSTALLED = 7002
 
-    fun show(ctx: Context, info: Updater.Info) {
+    private fun manager(ctx: Context): NotificationManager? {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (!nm.areNotificationsEnabled()) return
+        if (!nm.areNotificationsEnabled()) return null
         if (nm.getNotificationChannel(CHANNEL) == null) {
             val ch = NotificationChannel(CHANNEL, "App updates", NotificationManager.IMPORTANCE_HIGH)
-            ch.description = "Tells you when a new Zeta Board version is ready"
+            ch.description = "Tells you when a new Zeta Board version is ready or was installed"
             ch.enableLights(true)
             ch.lightColor = Pal.PURPLE
             nm.createNotificationChannel(ch)
         }
+        return nm
+    }
+
+    private fun openApp(ctx: Context, req: Int): PendingIntent {
         val open = Intent(ctx, MainActivity::class.java)
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         open.putExtra("from_update", true)
-        val pi = PendingIntent.getActivity(ctx, 1, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notes = info.notes.ifBlank { "Improvements and bug fixes" }
-        val action = Notification.Action.Builder(Icon.createWithResource(ctx, R.drawable.ic_notif), "Update now", pi).build()
-        val n = Notification.Builder(ctx, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notif)
-            .setLargeIcon(Logo.square(ctx, 192))
-            .setColor(Pal.PURPLE)
-            .setContentTitle("Zeta Board v" + info.name + " is ready")
-            .setContentText("A new update is available. Tap to install.")
-            .setSubText("Update available")
-            .setStyle(
-                Notification.BigTextStyle()
-                    .setBigContentTitle("Zeta Board v" + info.name)
-                    .bigText("What's new:\n" + notes)
-            )
-            .addAction(action)
-            .setContentIntent(pi)
-            .setAutoCancel(true)
-            .build()
-        nm.notify(7001, n)
+        return PendingIntent.getActivity(ctx, req, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    /** "A new version is ready" - the warning notification. */
+    fun show(ctx: Context, info: Updater.Info) {
+        try {
+            val nm = manager(ctx) ?: return
+            val pi = openApp(ctx, 1)
+            val notes = info.notes.ifBlank { "Improvements and bug fixes" }
+            val action = Notification.Action.Builder(Icon.createWithResource(ctx, R.drawable.ic_notif), "Update now", pi).build()
+            val n = Notification.Builder(ctx, CHANNEL)
+                .setSmallIcon(R.drawable.ic_notif)
+                .setLargeIcon(Logo.square(ctx, 192))
+                .setColor(Pal.PURPLE)
+                .setCategory(Notification.CATEGORY_RECOMMENDATION)
+                .setContentTitle("\u26A0 Update available: Zeta Board v" + info.name)
+                .setContentText("Update now to get the latest fixes and features.")
+                .setSubText("Update available")
+                .setStyle(
+                    Notification.BigTextStyle()
+                        .setBigContentTitle("Zeta Board v" + info.name + " is ready")
+                        .bigText("Please update to stay on the newest, most stable version.\n\nWhat's new:\n" + notes)
+                )
+                .addAction(action)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(ID_AVAILABLE, n)
+        } catch (e: Exception) {
+        }
+    }
+
+    /** "Zeta Board was updated" - shown right after a new version has been installed. */
+    fun showInstalled(ctx: Context, name: String, notes: String) {
+        try {
+            val nm = manager(ctx) ?: return
+            val pi = openApp(ctx, 2)
+            val n = Notification.Builder(ctx, CHANNEL)
+                .setSmallIcon(R.drawable.ic_notif)
+                .setLargeIcon(Logo.square(ctx, 192))
+                .setColor(Pal.GREEN)
+                .setCategory(Notification.CATEGORY_STATUS)
+                .setContentTitle("Zeta Board updated \u2713")
+                .setContentText("You are now on v" + name + ". Tap to see what's new.")
+                .setSubText("Update installed")
+                .setStyle(
+                    Notification.BigTextStyle()
+                        .setBigContentTitle("Zeta Board v" + name + " is installed")
+                        .bigText("What's new:\n" + notes)
+                )
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(ID_INSTALLED, n)
+        } catch (e: Exception) {
+        }
+    }
+
+    fun cancelAvailable(ctx: Context) {
+        try {
+            (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(ID_AVAILABLE)
+        } catch (e: Exception) {
+        }
+    }
+
+    fun cancelInstalled(ctx: Context) {
+        try {
+            (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(ID_INSTALLED)
+        } catch (e: Exception) {
+        }
     }
 }

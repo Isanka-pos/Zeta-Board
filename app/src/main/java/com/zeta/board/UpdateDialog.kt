@@ -90,6 +90,12 @@ object UpdateDialog {
         chipLp.topMargin = dp(12)
         root.addView(chip, chipLp)
 
+        val warn = tv("\u26A0  Please update soon: older versions may have bugs that are already fixed.", 12f, Color.parseColor("#F59E0B"), false)
+        warn.gravity = Gravity.CENTER
+        val warnLp = LinearLayout.LayoutParams(MATCH, WRAP)
+        warnLp.topMargin = dp(12)
+        root.addView(warn, warnLp)
+
         val notes = LinearLayout(a)
         notes.orientation = LinearLayout.VERTICAL
         notes.setPadding(dp(16), dp(14), dp(16), dp(14))

@@ -78,6 +78,27 @@ object Updater {
         return Info(code, "1.0.$code", j.optString("body", ""), apk)
     }
 
+    /** Reads the newest published release (update.json first, GitHub API as a fallback). Throws when it cannot be read. */
+    private fun fetchLatest(): Info {
+        val repo = BuildConfig.REPO
+        if (repo.isEmpty()) throw IllegalStateException("this build has no repo set - build it with GitHub Actions")
+        var latest: Info? = null
+        var e1 = ""
+        try {
+            latest = fromJson(get("https://github.com/$repo/releases/latest/download/update.json", null))
+        } catch (e: Exception) {
+            e1 = "update.json: " + (e.message ?: e.javaClass.simpleName)
+        }
+        if (latest == null) {
+            try {
+                latest = fromApi(get("https://api.github.com/repos/$repo/releases/latest", "application/vnd.github+json"))
+            } catch (e: Exception) {
+                throw IllegalStateException(e1 + " / api: " + (e.message ?: e.javaClass.simpleName))
+            }
+        }
+        return latest!!
+    }
+
     /** onResult(info, error): info != null when a newer version exists; error != null when the check failed. */
     fun check(c: Context, onResult: (Info?, String?) -> Unit) {
         val app = c.applicationContext
@@ -85,28 +106,24 @@ object Updater {
             var info: Info? = null
             var err: String? = null
             try {
-                val repo = BuildConfig.REPO
-                if (repo.isEmpty()) throw IllegalStateException("this build has no repo set - build it with GitHub Actions")
-                var latest: Info? = null
-                var e1 = ""
-                try {
-                    latest = fromJson(get("https://github.com/$repo/releases/latest/download/update.json", null))
-                } catch (e: Exception) {
-                    e1 = "update.json: " + (e.message ?: e.javaClass.simpleName)
-                }
-                if (latest == null) {
-                    try {
-                        latest = fromApi(get("https://api.github.com/repos/$repo/releases/latest", "application/vnd.github+json"))
-                    } catch (e: Exception) {
-                        throw IllegalStateException(e1 + " / api: " + (e.message ?: e.javaClass.simpleName))
-                    }
-                }
-                val l: Info = latest!!
+                val l = fetchLatest()
                 if (l.code > currentCode(app)) info = Info(l.code, l.name.ifBlank { "1.0." + l.code }, l.notes, l.apkUrl)
             } catch (e: Exception) {
                 err = e.message ?: e.javaClass.simpleName
             }
             main.post { onResult(info, err) }
+        }.start()
+    }
+
+    /** The newest published release, newer than the installed one or not (null if it cannot be read). Used for the "what's new" notes. */
+    fun latest(c: Context, onResult: (Info?) -> Unit) {
+        Thread {
+            var info: Info? = null
+            try {
+                info = fetchLatest()
+            } catch (e: Exception) {
+            }
+            main.post { onResult(info) }
         }.start()
     }
 

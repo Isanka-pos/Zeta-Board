@@ -12,6 +12,8 @@ import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import android.text.format.DateUtils
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -49,6 +51,15 @@ class MainActivity : Activity() {
     private var lastCheck = 0L
     private lateinit var thumbHint: TextView
     private lateinit var clipStat: TextView
+    private lateinit var sideMenu: SideMenu
+    private lateinit var scrollRoot: ScrollView
+    private lateinit var headerSub: TextView
+    private lateinit var updStatus: TextView
+    private lateinit var updateBanner: View
+    private lateinit var updateBannerText: TextView
+    private lateinit var menuDot: View
+    private val sections = ArrayList<Pair<View, Set<String>>>()
+    private var curGroup = "home"
 
     // re-checks for updates every 45 minutes while the app is on screen
     private val ticker = Handler(Looper.getMainLooper())
@@ -72,6 +83,9 @@ class MainActivity : Activity() {
         root.setBackgroundColor(Pal.BG)
         val home = buildHome()
         root.addView(home, FrameLayout.LayoutParams(MATCH, MATCH))
+        sideMenu = SideMenu(this, menuEntries()) { id -> onMenuPick(id) }
+        sideMenu.setVersion("Version " + Updater.currentName(this))
+        root.addView(sideMenu, FrameLayout.LayoutParams(MATCH, MATCH))
         val splash = SplashView(this)
         root.addView(splash, FrameLayout.LayoutParams(MATCH, MATCH))
         setContentView(root)
@@ -83,7 +97,7 @@ class MainActivity : Activity() {
         }
         splash.onDone = {
             splashDone = true
-            checkUpdate(false)
+            afterSplash()
             if (Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
             ) {
@@ -98,6 +112,49 @@ class MainActivity : Activity() {
                     .setStartDelay(150L + i * 90L).setDuration(450)
                     .setInterpolator(DecelerateInterpolator()).start()
             }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (::sideMenu.isInitialized && sideMenu.isOpen) {
+            sideMenu.close()
+            return
+        }
+        if (curGroup != "home") {
+            showGroup("home")
+            return
+        }
+        super.onBackPressed()
+    }
+
+    /** Runs once the splash is gone: shows "what's new" after an update, otherwise looks for a new version. */
+    private fun afterSplash() {
+        PostUpdate.detect(this)
+        if (PostUpdate.shouldShow(this)) {
+            val name = Updater.currentName(this)
+            val saved = PostUpdate.savedNotes(this)
+            PostUpdate.markShown(this)
+            if (saved.isNotBlank()) {
+                showWhatsNew(name, saved)
+            } else {
+                // the notes were never saved (first update with this feature): read them from the release
+                Updater.latest(this) { l ->
+                    if (isFinishing || isDestroyed) return@latest
+                    val n = if (l != null && l.code == Updater.currentCode(this)) l.notes else ""
+                    showWhatsNew(name, n.ifBlank { "Improvements and bug fixes" })
+                }
+            }
+        } else {
+            checkUpdate(false)
+        }
+        refreshUpdateUi()
+    }
+
+    private fun showWhatsNew(name: String, notes: String) {
+        if (Updater.dialogOpen) return
+        WhatsNewDialog.show(this, name, notes) {
+            if (!isFinishing && !isDestroyed) checkUpdate(false)
         }
     }
 
@@ -117,6 +174,7 @@ class MainActivity : Activity() {
         ticker.removeCallbacks(tickRun)
         ticker.postDelayed(tickRun, UpdateWatcher.INTERVAL_MS)
         refreshClipStat()
+        refreshUpdateUi()
         fontPaint?.invoke()
         textPaint?.invoke()
         if (splashDone && !Updater.dialogOpen && System.currentTimeMillis() - lastCheck > 60000L) checkUpdate(false)
@@ -456,15 +514,174 @@ class MainActivity : Activity() {
 
     private fun checkUpdate(manual: Boolean) {
         lastCheck = System.currentTimeMillis()
+        if (manual) Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show()
         Updater.check(this) { info, err ->
             if (isFinishing || isDestroyed) return@check
+            if (err == null) Prefs.setL(this, "last_ok_check", System.currentTimeMillis())
             if (info != null) {
+                UpdateStore.save(this, info)
+                refreshUpdateUi()
                 if (!Updater.dialogOpen) UpdateDialog.show(this, info)
-            } else if (manual) {
-                val msg = if (err != null) "Update check failed: $err" else "You are on the latest version"
-                Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            } else {
+                if (err == null) UpdateStore.dropRetracted(this)
+                refreshUpdateUi()
+                if (manual) {
+                    val msg = if (err != null) "Update check failed: $err" else "You are on the latest version"
+                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                }
             }
         }
+    }
+
+    // ---------- category menu ----------
+
+    private fun menuEntries(): List<MenuEntry> = listOf(
+        MenuEntry("home", "Home", "Everything in one place", R.drawable.ic_home),
+        MenuEntry("setup", "Setup", "Enable and select the keyboard", R.drawable.ic_keyboard),
+        MenuEntry("look", "Appearance", "Themes, shapes, RGB, photo", R.drawable.ic_palette),
+        MenuEntry("typing", "Typing & Fonts", "Text style, key font, feel", R.drawable.ic_font),
+        MenuEntry("clipboard", "Clipboard", "History and manager", R.drawable.ic_paste),
+        MenuEntry("sticker", "Sticker Maker", "Photo to WhatsApp sticker", R.drawable.ic_sticker),
+        MenuEntry("updates", "Updates", "Version and what's new", R.drawable.ic_download),
+        MenuEntry("about", "About", "Owner and contact", R.drawable.ic_info)
+    )
+
+    private fun onMenuPick(id: String) {
+        sideMenu.close()
+        if (id == "sticker") {
+            startActivity(Intent(this, StickerMakerActivity::class.java))
+            return
+        }
+        showGroup(id)
+    }
+
+    /** Shows only the cards that belong to the chosen category ("home" shows everything). */
+    private fun showGroup(key: String) {
+        val changed = key != curGroup
+        curGroup = key
+        sideMenu.select(key)
+        headerSub.text = if (key == "home") "Premium keyboard" else menuEntries().first { it.id == key }.title
+        var n = 0
+        for ((v, g) in sections) {
+            if (v === updateBanner) continue
+            val show = key == "home" || g.contains("*") || g.contains(key)
+            if (!show) {
+                v.visibility = View.GONE
+                continue
+            }
+            v.visibility = View.VISIBLE
+            if (changed && !g.contains("*")) {
+                v.alpha = 0f
+                v.translationY = dp(18).toFloat()
+                v.animate().alpha(1f).translationY(0f)
+                    .setStartDelay(40L * n).setDuration(300)
+                    .setInterpolator(DecelerateInterpolator()).start()
+                n++
+            }
+        }
+        scrollRoot.scrollTo(0, 0)
+    }
+
+    private fun put(v: View, vararg groups: String) {
+        col.addView(v)
+        sections.add(Pair(v, groups.toSet()))
+    }
+
+    private fun menuButton(): View {
+        val box = FrameLayout(this)
+        val b = ImageView(this)
+        b.setImageResource(R.drawable.ic_menu)
+        b.setColorFilter(Color.WHITE)
+        b.setPadding(dp(11), dp(11), dp(11), dp(11))
+        b.background = RippleDrawable(ColorStateList.valueOf(Color.argb(60, 168, 85, 247)), roundBg(Pal.CARD, 23, Pal.STROKE, 1), null)
+        b.contentDescription = "Menu"
+        b.setOnClickListener { sideMenu.open() }
+        box.addView(b, FrameLayout.LayoutParams(dp(46), dp(46)))
+        val dot = View(this)
+        val dotBg = GradientDrawable()
+        dotBg.shape = GradientDrawable.OVAL
+        dotBg.setColor(Color.parseColor("#EF4444"))
+        dotBg.setStroke(dp(2), Pal.BG)
+        dot.background = dotBg
+        dot.visibility = View.GONE
+        menuDot = dot
+        val dlp = FrameLayout.LayoutParams(dp(14), dp(14), Gravity.TOP or Gravity.END)
+        dlp.topMargin = dp(1)
+        dlp.rightMargin = dp(1)
+        box.addView(dot, dlp)
+        return box
+    }
+
+    // ---------- update warning ----------
+
+    private fun updateBannerView(): View {
+        val amber = Color.parseColor("#F59E0B")
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.setPadding(dp(14), dp(12), dp(12), dp(12))
+        row.background = roundBg(Color.argb(34, 245, 158, 11), 20, amber, 1)
+        val ic = ImageView(this)
+        ic.setImageResource(R.drawable.ic_warning)
+        ic.setColorFilter(amber)
+        row.addView(ic, LinearLayout.LayoutParams(dp(26), dp(26)))
+        val t = LinearLayout(this)
+        t.orientation = LinearLayout.VERTICAL
+        t.setPadding(dp(12), 0, dp(8), 0)
+        t.addView(tv("Update available", 15f, Color.WHITE, true))
+        updateBannerText = tv("", 12f, Color.parseColor("#E9D5A6"))
+        t.addView(updateBannerText)
+        row.addView(t, LinearLayout.LayoutParams(0, WRAP, 1f))
+        row.addView(pill("Update") { showPendingUpdate() })
+        row.setOnClickListener { showPendingUpdate() }
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(16)
+        row.layoutParams = lp
+        row.visibility = View.GONE
+        updateBanner = row
+        return row
+    }
+
+    private fun showPendingUpdate() {
+        val info = UpdateStore.pending(this)
+        if (info == null) {
+            refreshUpdateUi()
+            return
+        }
+        if (!Updater.dialogOpen) UpdateDialog.show(this, info)
+    }
+
+    /** Keeps the warning banner, the red dots and the Updates card in line with what is known about new versions. */
+    private fun refreshUpdateUi() {
+        val info = UpdateStore.pending(this)
+        if (info != null) {
+            updateBanner.visibility = View.VISIBLE
+            updateBannerText.text = "Version " + info.name + " is ready. Update now for the latest fixes."
+            updStatus.text = "Update available: v" + info.name
+            updStatus.setTextColor(Color.parseColor("#F59E0B"))
+        } else {
+            updateBanner.visibility = View.GONE
+            val ts = Prefs.getL(this, "last_ok_check", 0L)
+            val ago = if (ts == 0L) "Not checked yet" else "Last checked " + DateUtils.getRelativeTimeSpanString(ts, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
+            updStatus.text = "You are on the latest version  \u2022  " + ago
+            updStatus.setTextColor(Pal.GREEN)
+        }
+        menuDot.visibility = if (info != null) View.VISIBLE else View.GONE
+        sideMenu.badge("updates", info != null)
+    }
+
+    private fun updatesCard(): View {
+        val c = card("Updates", "Version " + Updater.currentName(this))
+        updStatus = tv("", 13f, Pal.MUTED)
+        updStatus.setPadding(0, dp(12), 0, 0)
+        c.addView(updStatus)
+        val note = tv("Zeta Board checks for new versions every " + UpdateScheduler.INTERVAL_MIN + " minutes and tells you with a notification.", 12f, Pal.MUTED)
+        note.setPadding(0, dp(8), 0, 0)
+        c.addView(note)
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(14)
+        c.addView(pill("Check for updates") { checkUpdate(true) }, lp)
+        return c
     }
 
     // ---------- helpers ----------
@@ -570,27 +787,31 @@ class MainActivity : Activity() {
         col = LinearLayout(this)
         col.orientation = LinearLayout.VERTICAL
         col.setPadding(dp(18), dp(32), dp(18), dp(40))
-        col.addView(header())
-        col.addView(setupCard())
-        val preview = previewCard()
-        col.addView(preview)
-        col.addView(themeCard())
-        col.addView(shapeCard())
-        col.addView(rgbCard())
-        col.addView(photoCard())
-        col.addView(textStyleCard())
-        col.addView(keyFontCard())
-        col.addView(clipManagerCard())
-        col.addView(settingsCard())
-        col.addView(aboutCard())
+        put(header(), "*")
+        put(updateBannerView(), "*")
+        put(setupCard(), "setup")
+        put(previewCard(), "setup", "look", "typing")
+        put(themeCard(), "look")
+        put(shapeCard(), "look")
+        put(rgbCard(), "look")
+        put(photoCard(), "look")
+        put(textStyleCard(), "typing")
+        put(keyFontCard(), "typing")
+        put(typingCard(), "typing")
+        put(clipManagerCard(), "clipboard")
+        put(clipSettingsCard(), "clipboard")
+        put(updatesCard(), "updates")
+        put(aboutCard(), "about")
         val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Dev", 12f, Pal.MUTED)
         foot.gravity = Gravity.CENTER
         foot.setPadding(0, dp(24), 0, 0)
         col.addView(foot, LinearLayout.LayoutParams(MATCH, WRAP))
+        sections.add(Pair(foot, setOf("*")))
         val sv = ScrollView(this)
         sv.setBackgroundColor(Pal.BG)
         sv.isVerticalScrollBarEnabled = false
         sv.addView(col)
+        scrollRoot = sv
         return sv
     }
 
@@ -603,8 +824,10 @@ class MainActivity : Activity() {
         c.orientation = LinearLayout.VERTICAL
         c.setPadding(dp(14), 0, 0, 0)
         c.addView(tv("Zeta Board", 26f, Color.WHITE, true))
-        c.addView(tv("Premium keyboard", 13f, Pal.MUTED))
-        row.addView(c)
+        headerSub = tv("Premium keyboard", 13f, Pal.MUTED)
+        c.addView(headerSub)
+        row.addView(c, LinearLayout.LayoutParams(0, WRAP, 1f))
+        row.addView(menuButton(), LinearLayout.LayoutParams(dp(46), dp(46)))
         return row
     }
 
@@ -743,7 +966,7 @@ class MainActivity : Activity() {
         return row
     }
 
-    private fun settingsCard(): View {
+    private fun typingCard(): View {
         val c = card("Typing", "Make it feel right")
         c.addView(switchRow("Vibration", "Haptic tap on every key", "haptic", true))
         c.addView(switchRow("Key sound", "Click sound while typing", "sound", false))
@@ -773,7 +996,11 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
         c.addView(sb, LinearLayout.LayoutParams(MATCH, WRAP))
+        return c
+    }
 
+    private fun clipSettingsCard(): View {
+        val c = card("Clipboard settings", "Control what Zeta Board remembers")
         c.addView(switchRow("Clipboard history", "Save copied text on this phone only", "clip_on", true))
         val maxVals = intArrayOf(30, 60, 100, 200)
         val maxIdx = maxVals.indexOf(Prefs.getI(this, "clip_max", 100)).coerceAtLeast(0)
@@ -798,17 +1025,6 @@ class MainActivity : Activity() {
         wlp.topMargin = dp(14)
         c.addView(wipe, wlp)
 
-        val vrow = LinearLayout(this)
-        vrow.orientation = LinearLayout.HORIZONTAL
-        vrow.gravity = Gravity.CENTER_VERTICAL
-        vrow.setPadding(0, dp(18), 0, 0)
-        val vcol = LinearLayout(this)
-        vcol.orientation = LinearLayout.VERTICAL
-        vcol.addView(tv("Updates", 15f, Color.WHITE))
-        vcol.addView(tv("Version " + Updater.currentName(this), 12f, Pal.MUTED))
-        vrow.addView(vcol, LinearLayout.LayoutParams(0, WRAP, 1f))
-        vrow.addView(pill("Check") { checkUpdate(true) })
-        c.addView(vrow)
         return c
     }
 }
