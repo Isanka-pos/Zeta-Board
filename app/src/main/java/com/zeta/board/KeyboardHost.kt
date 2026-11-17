@@ -38,6 +38,9 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private var panelOpen = false
     private var stickersOpen = false
     private var typing = false
+    /** Tells the keyboard service when a private panel (clipboard / stickers) is open, so its window can block screenshots. */
+    var onSecure: ((Boolean) -> Unit)? = null
+    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen) }
     private val d = ctx.resources.displayMetrics.density
 
     init {
@@ -74,6 +77,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         panel.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
         kv.visibility = GONE
         panel.open()
+        syncSecure()
     }
 
     fun closeClipboard() {
@@ -84,6 +88,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         panel.close()
         panel.visibility = GONE
         kv.visibility = VISIBLE
+        syncSecure()
     }
 
     // ---- sticker maker ----
@@ -135,6 +140,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         stickers.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
         kv.visibility = GONE
         stickers.open()
+        syncSecure()
     }
 
     fun closeStickers() {
@@ -144,6 +150,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         stickers.close()
         stickers.visibility = GONE
         kv.visibility = VISIBLE
+        syncSecure()
     }
 
     /** Called every time the keyboard shows up: opens the sticker panel if a photo/sticker is waiting for it. */

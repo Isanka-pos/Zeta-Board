@@ -109,6 +109,7 @@ object WhatsNewDialog {
         root.addView(ok, okLp)
 
         dialog.setContentView(root)
+        ScreenGuard.secure(dialog.window)
         dialog.setOnDismissListener {
             Updater.dialogOpen = false
             Updater.dialog = null

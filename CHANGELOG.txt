@@ -1,3 +1,4 @@
+- NEW: Privacy: screenshots and screen recording are blocked on every screen of the app (and the Recent-apps preview is hidden). On Android 14+ a warning banner slides in from the top and a notification appears when someone tries to take a screenshot. The keyboard clipboard and sticker panels are protected too
 - NEW: Menu button (three lines, top right of the app). Opens the category menu: Home, Setup, Appearance, Typing & Fonts, Clipboard, Sticker Maker, Updates, About. Each category shows only its own cards
 - NEW: Sticker Maker is now also inside the app (menu -> Sticker Maker): make a sticker from a photo or a copied image, see all stickers, send to WhatsApp, share or delete
 - NEW: Update warning: a notification, a warning banner at the top of the app and a red dot on the menu button tell you as soon as a new version is ready

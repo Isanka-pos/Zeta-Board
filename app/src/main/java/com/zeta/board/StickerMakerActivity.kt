@@ -434,6 +434,7 @@ class StickerMakerActivity : Activity(), StickerHub.Listener {
         root.addView(row2, r2lp)
 
         dialog.setContentView(root)
+        ScreenGuard.secure(dialog.window)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         dialog.show()
         dialog.window?.setLayout((resources.displayMetrics.widthPixels * 0.86f).toInt(), WRAP)

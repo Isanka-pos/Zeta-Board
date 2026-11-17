@@ -25,3 +25,8 @@
 - The photo is uploaded to catbox.moe, converted by the wolvarex img-to-sticker API, normalised to 512x512 WebP (<100 KB) and shown first in the grid. Tap to send, hold to delete.
 - If the API is unreachable, a sticker is still made on the phone (offline mode).
 - API key: defaults to the key in app/build.gradle.kts. To keep it out of the repo, add a GitHub secret named STICKER_KEY (the workflow passes it to the build).
+
+## Privacy
+- Every screen and dialog of the app uses FLAG_SECURE: screenshots / screen recording are blocked and the Recent-apps preview is hidden.
+- Android 14+: when a screenshot is attempted, a warning banner slides in from the top and a heads-up notification is shown (uses the DETECT_SCREEN_CAPTURE permission, granted automatically).
+- The keyboard window is protected only while the clipboard or sticker panel is open, so normal typing does not stop screenshots of other apps.

@@ -348,7 +348,7 @@ class ClipManagerActivity : Activity() {
                     onSave(t)
                 }
             }
-            .show()
+            .create().also { ScreenGuard.secure(it.window) }.show()
     }
 
     private fun confirm(title: String, msg: String, ok: String, onOk: () -> Unit) {
@@ -357,7 +357,7 @@ class ClipManagerActivity : Activity() {
             .setMessage(msg)
             .setNegativeButton("Cancel", null)
             .setPositiveButton(ok) { _, _ -> onOk() }
-            .show()
+            .create().also { ScreenGuard.secure(it.window) }.show()
     }
 
     private fun toast(msg: String) {

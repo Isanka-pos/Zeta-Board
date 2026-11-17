@@ -208,6 +208,7 @@ object UpdateDialog {
         }
 
         dialog.setContentView(root)
+        ScreenGuard.secure(dialog.window)
         dialog.setOnDismissListener {
             task?.cancelled = true
             Updater.dialogOpen = false
