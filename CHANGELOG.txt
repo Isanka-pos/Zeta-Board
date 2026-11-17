@@ -1,3 +1,4 @@
-- Update check is now more reliable (checks again every time you open the app)
+- New Clipboard Manager: history, pinned clips, search, edit, copy, delete
+- Update notifications: you now get a notification when a new version is ready
+- New app logo
 - 5 key shapes, gallery photo background, RGB lighting
-- New professional startup animation

@@ -34,7 +34,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val DEL = 1
         const val ENTER = 2
         const val SETTINGS = 3
-        const val PASTE = 4
+        const val CLIPBOARD = 4
         const val LEFT = 5
         const val RIGHT = 6
 
@@ -61,10 +61,12 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
 
     var listener: Listener? = null
+    var onTheme: ((KbTheme) -> Unit)? = null
     var theme: KbTheme = Themes.get(0)
         set(v) {
             field = v
             invalidate()
+            onTheme?.invoke(v)
         }
 
     private val dm = ctx.resources.displayMetrics.density
@@ -298,10 +300,14 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
     }
 
-    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+    fun preferredHeight(): Int {
         val base = dp(46f) * heightPct / 100f
         val n = if (numRow) 5 else 4
-        setMeasuredDimension(MeasureSpec.getSize(widthSpec), (toolH + base * n + dp(8f)).toInt())
+        return (toolH + base * n + dp(8f)).toInt()
+    }
+
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        setMeasuredDimension(MeasureSpec.getSize(widthSpec), preferredHeight())
     }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
@@ -420,10 +426,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         rect.set(lx, ly, lx + s, ly + s)
         p.color = Color.argb(70, 0, 0, 0)
         c.drawRoundRect(rect, dp(8f), dp(8f), p)
-        val lg = drawable(R.drawable.ic_logo)
-        lg.setTintList(null)
-        lg.setBounds((lx - s * 0.2f).toInt(), (ly - s * 0.2f).toInt(), (lx + s * 1.2f).toInt(), (ly + s * 1.2f).toInt())
-        lg.draw(c)
+        Logo.draw(c, context, lx, ly, lx + s, ly + s, dp(8f))
 
         tp.textAlign = Paint.Align.LEFT
         tp.letterSpacing = 0.12f
@@ -702,7 +705,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun toolTap(i: Int) {
         when (i) {
-            0 -> listener?.onAction(PASTE)
+            0 -> listener?.onAction(CLIPBOARD)
             1 -> {
                 val n = (Prefs.getI(context, "theme", 0) + 1) % Themes.all.size
                 Prefs.setI(context, "theme", n)

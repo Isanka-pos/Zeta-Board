@@ -33,26 +33,20 @@ object Pal {
 class LogoBadge(ctx: Context) : View(ctx) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rf = RectF()
-    private val logo = ctx.getDrawable(R.drawable.ic_logo)!!.mutate()
     private val d = ctx.resources.displayMetrics.density
 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        val r = w * 0.3f
+        val r = w * 0.28f
+        Logo.draw(c, context, d * 2f, d * 2f, w - d * 2f, h - d * 2f, r)
         rf.set(d, d, w - d, h - d)
-        p.style = Paint.Style.FILL
-        p.shader = LinearGradient(0f, 0f, w, h, Pal.BG2, Pal.TILE, Shader.TileMode.CLAMP)
-        c.drawRoundRect(rf, r, r, p)
         p.shader = LinearGradient(0f, 0f, w, h, Pal.CYAN, Pal.PURPLE, Shader.TileMode.CLAMP)
         p.style = Paint.Style.STROKE
         p.strokeWidth = d * 2f
         c.drawRoundRect(rf, r, r, p)
         p.shader = null
         p.style = Paint.Style.FILL
-        val s = w * 1.4f
-        logo.setBounds(((w - s) / 2).toInt(), ((h - s) / 2).toInt(), ((w + s) / 2).toInt(), ((h + s) / 2).toInt())
-        logo.draw(c)
     }
 }
 
@@ -225,7 +219,6 @@ class SplashView(ctx: Context) : View(ctx) {
     private val path = Path()
     private val m = Matrix()
     private val hsv = FloatArray(3)
-    private val logo = ctx.getDrawable(R.drawable.ic_logo)!!.mutate()
     private val title = "ZETA BOARD"
     private val rainbow = IntArray(7) { Color.HSVToColor(floatArrayOf(it * 60f, 0.85f, 1f)) }
     private val blobR = d * 230f
@@ -286,11 +279,7 @@ class SplashView(ctx: Context) : View(ctx) {
         val pop = back(seg(t, 0.02f, 0.22f)).coerceAtLeast(0f)
         val s = d * 88f * pop
         rf.set(cx - s / 2f, ly - s / 2f, cx + s / 2f, ly + s / 2f)
-        p.color = Pal.TILE
-        c.drawRoundRect(rf, s * 0.28f, s * 0.28f, p)
-        val ls = s * 1.4f
-        logo.setBounds((cx - ls / 2f).toInt(), (ly - ls / 2f).toInt(), (cx + ls / 2f).toInt(), (ly + ls / 2f).toInt())
-        logo.draw(c)
+        if (s > 1f) Logo.draw(c, context, rf.left, rf.top, rf.right, rf.bottom, s * 0.28f)
 
         val shine = seg(t, 0.42f, 0.64f)
         if (shine > 0f && shine < 1f) {

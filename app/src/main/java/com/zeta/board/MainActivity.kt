@@ -1,7 +1,10 @@
 package com.zeta.board
 
 import android.app.Activity
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.ImageView.ScaleType
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -31,6 +34,8 @@ import android.widget.TextView
 class MainActivity : Activity() {
 
     private lateinit var kv: KeyboardView
+    private lateinit var host: KeyboardHost
+    private var clearArmed = false
     private lateinit var et: EditText
     private lateinit var col: LinearLayout
     private val steps = ArrayList<StepRow>()
@@ -48,6 +53,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        UpdateScheduler.schedule(this)
+        ClipRepo.init(this)
         val root = FrameLayout(this)
         root.setBackgroundColor(Pal.BG)
         val home = buildHome()
@@ -64,6 +71,13 @@ class MainActivity : Activity() {
         splash.onDone = {
             splashDone = true
             checkUpdate(false)
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                col.postDelayed({
+                    if (!isFinishing) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 9)
+                }, 1200L)
+            }
             splash.animate().alpha(0f).scaleX(1.06f).scaleY(1.06f).setDuration(480).withEndAction { root.removeView(splash) }.start()
             for (i in 0 until col.childCount) {
                 col.getChildAt(i).animate()
@@ -468,38 +482,45 @@ class MainActivity : Activity() {
         lp1.topMargin = dp(14)
         c.addView(et, lp1)
 
-        kv = KeyboardView(this)
-        kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
-        val radius = dp(18).toFloat()
-        kv.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                outline.setRoundRect(0, 0, view.width, view.height, radius)
-            }
-        }
-        kv.clipToOutline = true
-        kv.listener = object : KeyboardView.Listener {
-            override fun onText(s: String) {
+        host = KeyboardHost(this, object : KeyboardHost.Output {
+            override fun commit(s: String) {
                 val pos = et.selectionStart.coerceAtLeast(0)
                 et.text.insert(pos, s)
             }
 
-            override fun onAction(a: Int) {
+            override fun del() {
                 val t = et.text
                 val pos = et.selectionStart.coerceAtLeast(0)
-                when (a) {
-                    KeyboardView.DEL -> if (pos > 0) {
-                        val n = if (pos >= 2 && Character.isLowSurrogate(t[pos - 1]) && Character.isHighSurrogate(t[pos - 2])) 2 else 1
-                        t.delete(pos - n, pos)
-                    }
-                    KeyboardView.ENTER -> t.insert(pos, "\n")
-                    KeyboardView.LEFT -> if (pos > 0) et.setSelection(pos - 1)
-                    KeyboardView.RIGHT -> if (pos < t.length) et.setSelection(pos + 1)
+                if (pos > 0) {
+                    val n = if (pos >= 2 && Character.isLowSurrogate(t[pos - 1]) && Character.isHighSurrogate(t[pos - 2])) 2 else 1
+                    t.delete(pos - n, pos)
                 }
             }
+
+            override fun enter() {
+                et.text.insert(et.selectionStart.coerceAtLeast(0), "\n")
+            }
+
+            override fun cursor(dir: Int) {
+                val pos = et.selectionStart.coerceAtLeast(0)
+                if (dir < 0 && pos > 0) et.setSelection(pos - 1)
+                if (dir > 0 && pos < et.text.length) et.setSelection(pos + 1)
+            }
+
+            override fun settings() {}
+        })
+        kv = host.kv
+        kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
+        val radius = dp(18).toFloat()
+        host.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, radius)
+            }
         }
+        host.clipToOutline = true
         val lp2 = LinearLayout.LayoutParams(MATCH, WRAP)
         lp2.topMargin = dp(12)
-        c.addView(kv, lp2)
+        c.addView(host, lp2)
         return c
     }
 
@@ -556,6 +577,30 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
         c.addView(sb, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        c.addView(switchRow("Clipboard history", "Save copied text on this phone only", "clip_on", true))
+        val maxVals = intArrayOf(30, 60, 100, 200)
+        val maxIdx = maxVals.indexOf(Prefs.getI(this, "clip_max", 100)).coerceAtLeast(0)
+        c.addView(tv("History size", 15f, Color.WHITE))
+        val seg = segment(listOf("30", "60", "100", "200"), maxIdx) { Prefs.setI(this, "clip_max", maxVals[it]) }
+        val slp = LinearLayout.LayoutParams(MATCH, WRAP)
+        slp.topMargin = dp(8)
+        c.addView(seg, slp)
+        val wipe = pill("Delete all clipboard data") {
+            if (!clearArmed) {
+                clearArmed = true
+                Toast.makeText(this, "Tap again to delete everything, including pinned items", Toast.LENGTH_SHORT).show()
+                col.postDelayed({ clearArmed = false }, 3000L)
+            } else {
+                clearArmed = false
+                ClipRepo.clearAll()
+                Toast.makeText(this, "Clipboard data deleted", Toast.LENGTH_SHORT).show()
+            }
+        }
+        wipe.background = roundBg(Pal.BG, 30, Pal.STROKE, 1)
+        val wlp = LinearLayout.LayoutParams(MATCH, WRAP)
+        wlp.topMargin = dp(14)
+        c.addView(wipe, wlp)
 
         val vrow = LinearLayout(this)
         vrow.orientation = LinearLayout.HORIZONTAL
