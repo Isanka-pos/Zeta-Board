@@ -2,6 +2,7 @@ package com.zeta.board
 
 import android.app.Activity
 import android.content.Intent
+import android.widget.ImageView.ScaleType
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Outline
@@ -34,6 +35,9 @@ class MainActivity : Activity() {
     private lateinit var col: LinearLayout
     private val steps = ArrayList<StepRow>()
     private val chips = ArrayList<ThemeChip>()
+    private val shapeChips = ArrayList<ShapeChip>()
+    private lateinit var thumb: ImageView
+    private lateinit var thumbHint: TextView
 
     private val dens: Float by lazy { resources.displayMetrics.density }
     private fun dp(v: Int): Int = (v * dens).toInt()
@@ -57,7 +61,7 @@ class MainActivity : Activity() {
         }
         splash.onDone = {
             checkUpdate(false)
-            splash.animate().alpha(0f).setDuration(400).withEndAction { root.removeView(splash) }.start()
+            splash.animate().alpha(0f).scaleX(1.06f).scaleY(1.06f).setDuration(480).withEndAction { root.removeView(splash) }.start()
             for (i in 0 until col.childCount) {
                 col.getChildAt(i).animate()
                     .alpha(1f).translationY(0f)
@@ -82,6 +86,177 @@ class MainActivity : Activity() {
             steps[0].setDone(enabled)
             steps[1].setDone(sel)
         }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 77 && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            Thread {
+                val ok = KbBg.save(this, uri)
+                runOnUiThread {
+                    if (ok) {
+                        kv.reload()
+                        refreshThumb()
+                    } else {
+                        Toast.makeText(this, "Could not load that image", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }.start()
+        }
+    }
+
+    private fun refreshThumb() {
+        val b = if (KbBg.has(this)) KbBg.load(this, 4) else null
+        thumb.setImageBitmap(b)
+        thumbHint.visibility = if (b == null) View.VISIBLE else View.GONE
+    }
+
+    private fun gradientPill(): GradientDrawable {
+        val g = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Pal.CYAN, Pal.PURPLE))
+        g.cornerRadius = dp(14).toFloat()
+        return g
+    }
+
+    private fun segment(labels: List<String>, cur: Int, onPick: (Int) -> Unit): View {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        val views = ArrayList<TextView>()
+        fun paint(sel: Int) {
+            views.forEachIndexed { i, v ->
+                v.background = if (i == sel) gradientPill() else roundBg(Pal.BG, 14, Pal.STROKE, 1)
+                v.setTextColor(if (i == sel) Color.WHITE else Pal.MUTED)
+            }
+        }
+        labels.forEachIndexed { i, s ->
+            val t = tv(s, 12f, Pal.MUTED, true)
+            t.gravity = Gravity.CENTER
+            t.setPadding(dp(4), dp(11), dp(4), dp(11))
+            val lp = LinearLayout.LayoutParams(0, WRAP, 1f)
+            if (i > 0) lp.leftMargin = dp(6)
+            row.addView(t, lp)
+            views.add(t)
+            t.setOnClickListener {
+                paint(i)
+                onPick(i)
+            }
+        }
+        paint(cur)
+        return row
+    }
+
+    private fun slider(label: String, unit: String, min: Int, max: Int, key: String, def: Int): View {
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.VERTICAL
+        box.setPadding(0, dp(16), 0, 0)
+        val cur = Prefs.getI(this, key, def)
+        val lab = tv(label + "  " + cur + unit, 14f, Color.WHITE)
+        box.addView(lab)
+        val sb = SeekBar(this)
+        sb.max = max - min
+        sb.progress = cur - min
+        sb.progressTintList = ColorStateList.valueOf(Pal.PURPLE)
+        sb.thumbTintList = ColorStateList.valueOf(Pal.CYAN)
+        sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                val v = min + p
+                lab.text = label + "  " + v + unit
+                if (fromUser) {
+                    Prefs.setI(this@MainActivity, key, v)
+                    kv.reload()
+                }
+            }
+
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {}
+        })
+        box.addView(sb, LinearLayout.LayoutParams(MATCH, WRAP))
+        return box
+    }
+
+    private fun shapeCard(): View {
+        val c = card("Key shape", "Choose how every key looks")
+        val hs = HorizontalScrollView(this)
+        hs.isHorizontalScrollBarEnabled = false
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        val cur = Prefs.getI(this, "shape", 0)
+        for (i in KeyShape.names.indices) {
+            val ch = ShapeChip(this, i, i == cur)
+            shapeChips.add(ch)
+            val lp = LinearLayout.LayoutParams(dp(96), dp(88))
+            lp.rightMargin = dp(10)
+            row.addView(ch, lp)
+            ch.setOnClickListener {
+                Prefs.setI(this, "shape", i)
+                kv.reload()
+                shapeChips.forEachIndexed { j, x -> x.select(j == i) }
+            }
+        }
+        hs.addView(row)
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(14)
+        c.addView(hs, lp)
+        return c
+    }
+
+    private fun rgbCard(): View {
+        val c = card("RGB lighting", "Animated rainbow glow on your keyboard")
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(14)
+        c.addView(segment(listOf("Off", "Wave", "Border", "Both"), Prefs.getI(this, "rgb", 0)) {
+            Prefs.setI(this, "rgb", it)
+            kv.reload()
+        }, lp)
+        c.addView(slider("Speed", "", 1, 10, "rgbspeed", 5))
+        return c
+    }
+
+    private fun photoCard(): View {
+        val c = card("Photo background", "Use any picture from your gallery")
+        val frame = FrameLayout(this)
+        frame.background = roundBg(Pal.BG, 16, Pal.STROKE, 1)
+        val radius = dp(16).toFloat()
+        frame.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, radius)
+            }
+        }
+        frame.clipToOutline = true
+        thumbHint = tv("No photo selected", 13f, Pal.MUTED)
+        thumbHint.gravity = Gravity.CENTER
+        frame.addView(thumbHint, FrameLayout.LayoutParams(MATCH, MATCH))
+        thumb = ImageView(this)
+        thumb.scaleType = ScaleType.CENTER_CROP
+        frame.addView(thumb, FrameLayout.LayoutParams(MATCH, MATCH))
+        val flp = LinearLayout.LayoutParams(MATCH, dp(130))
+        flp.topMargin = dp(14)
+        c.addView(frame, flp)
+        refreshThumb()
+
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        val choose = pill("Choose photo") {
+            val i = Intent(Intent.ACTION_GET_CONTENT)
+            i.type = "image/*"
+            i.addCategory(Intent.CATEGORY_OPENABLE)
+            startActivityForResult(Intent.createChooser(i, "Select photo"), 77)
+        }
+        val remove = pill("Remove") {
+            KbBg.clear(this)
+            kv.reload()
+            refreshThumb()
+        }
+        remove.background = roundBg(Pal.BG, 30, Pal.STROKE, 1)
+        val l1 = LinearLayout.LayoutParams(0, WRAP, 1f)
+        l1.rightMargin = dp(10)
+        row.addView(choose, l1)
+        row.addView(remove, LinearLayout.LayoutParams(0, WRAP, 1f))
+        val rlp = LinearLayout.LayoutParams(MATCH, WRAP)
+        rlp.topMargin = dp(14)
+        c.addView(row, rlp)
+        c.addView(slider("Photo dim", "%", 0, 80, "bgdim", 35))
+        return c
     }
 
     private fun checkUpdate(manual: Boolean) {
@@ -197,12 +372,13 @@ class MainActivity : Activity() {
         col.setPadding(dp(18), dp(32), dp(18), dp(40))
         col.addView(header())
         col.addView(setupCard())
-        val themes = themeCard()
         val preview = previewCard()
-        val settings = settingsCard()
-        col.addView(themes)
         col.addView(preview)
-        col.addView(settings)
+        col.addView(themeCard())
+        col.addView(shapeCard())
+        col.addView(rgbCard())
+        col.addView(photoCard())
+        col.addView(settingsCard())
         val foot = tv("Zeta Board v1.0  \u2022  Made by Isanka Malith", 12f, Pal.MUTED)
         foot.gravity = Gravity.CENTER
         foot.setPadding(0, dp(24), 0, 0)

@@ -1,3 +1,5 @@
-- In-app updates: new versions download inside the app
-- 9 live themes, Sinhala layout, emoji panel
-- Smoother animations and fixes
+- 5 key shapes: Rounded, Pill, Square, Cut, Outline
+- Use any gallery photo as your keyboard background (with dim control)
+- RGB lighting: animated Wave and Border glow with speed control
+- New professional startup animation
+- In-app updates

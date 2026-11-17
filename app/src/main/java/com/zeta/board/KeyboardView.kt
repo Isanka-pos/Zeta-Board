@@ -1,12 +1,17 @@
 package com.zeta.board
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.SweepGradient
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.media.AudioManager
@@ -78,6 +83,21 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private var haptic = true
     private var sound = false
     private var preview = true
+    private var shape = 0
+    private var rgb = 0
+    private var rgbSpeed = 5
+    private var bgDim = 35
+    private var bgRaw: Bitmap? = null
+    private var bgScaled: Bitmap? = null
+    private var bgStamp = 0L
+    private val path = Path()
+    private val hsv = FloatArray(3)
+    private val sweepM = Matrix()
+    private var sweep: SweepGradient? = null
+    private val srcR = Rect()
+    private val dstR = Rect()
+    private val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val rainbow = IntArray(7) { Color.HSVToColor(floatArrayOf(it * 60f, 0.9f, 1f)) }
 
     private val toolH: Float get() = dp(44f)
     private val handler = Handler(Looper.getMainLooper())
@@ -152,6 +172,17 @@ class KeyboardView(ctx: Context) : View(ctx) {
         haptic = Prefs.getB(c, "haptic", true)
         sound = Prefs.getB(c, "sound", false)
         preview = Prefs.getB(c, "preview", true)
+        shape = Prefs.getI(c, "shape", 0)
+        rgb = Prefs.getI(c, "rgb", 0)
+        rgbSpeed = Prefs.getI(c, "rgbspeed", 5)
+        bgDim = Prefs.getI(c, "bgdim", 35)
+        val bf = KbBg.file(c)
+        val stamp = if (bf.exists()) bf.lastModified() + bf.length() else 0L
+        if (stamp != bgStamp) {
+            bgStamp = stamp
+            bgRaw = if (stamp != 0L) KbBg.load(c, 1) else null
+            buildBg()
+        }
         rows = build()
         requestLayout()
         layoutKeys()
@@ -276,6 +307,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         super.onSizeChanged(w, h, ow, oh)
         layoutKeys()
+        buildBg()
+        sweep = SweepGradient(w / 2f, h / 2f, rainbow, null)
     }
 
     // ---------- drawing ----------
@@ -301,12 +334,81 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     override fun onDraw(c: Canvas) {
         val t = theme
-        p.shader = LinearGradient(0f, 0f, 0f, height.toFloat(), t.bgTop, t.bgBottom, Shader.TileMode.CLAMP)
-        c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), p)
-        p.shader = null
+        val bs = bgScaled
+        p.style = Paint.Style.FILL
+        if (bs != null) {
+            p.shader = null
+            c.drawBitmap(bs, 0f, 0f, null)
+            p.color = Color.argb(bgDim * 255 / 100, 0, 0, 0)
+            c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), p)
+        } else {
+            p.shader = LinearGradient(0f, 0f, 0f, height.toFloat(), t.bgTop, t.bgBottom, Shader.TileMode.CLAMP)
+            c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), p)
+            p.shader = null
+        }
         drawToolbar(c)
         for (row in rows) for (k in row) drawKey(c, k)
         drawPopups(c)
+        if ((rgb and 2) != 0) drawBorder(c)
+        if (rgb != 0 && isShown) postInvalidateOnAnimation()
+    }
+
+    private fun withA(color: Int, a: Int): Int = (color and 0x00FFFFFF) or (a shl 24)
+
+    private fun drawShape(c: Canvas, r: RectF, dy: Float, paint: Paint) {
+        KeyShape.draw(c, r.left, r.top + dy, r.right, r.bottom + dy, shape, dm, paint, path)
+    }
+
+    private fun phase(): Float = SystemClock.uptimeMillis() * 0.001f * rgbSpeed * 18f
+
+    private fun buildBg() {
+        bgScaled?.recycle()
+        bgScaled = null
+        val raw = bgRaw ?: return
+        if (width <= 0 || height <= 0) return
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val cv = Canvas(bmp)
+        val sc = maxOf(width.toFloat() / raw.width, height.toFloat() / raw.height)
+        val sw = width / sc
+        val sh = height / sc
+        srcR.set(((raw.width - sw) / 2f).toInt(), ((raw.height - sh) / 2f).toInt(), ((raw.width + sw) / 2f).toInt(), ((raw.height + sh) / 2f).toInt())
+        dstR.set(0, 0, width, height)
+        cv.drawBitmap(raw, srcR, dstR, bmpPaint)
+        bgScaled = bmp
+    }
+
+    private fun drawBorder(c: Canvas) {
+        val sh = sweep ?: return
+        sweepM.setRotate(phase(), width / 2f, height / 2f)
+        sh.setLocalMatrix(sweepM)
+        p.shader = sh
+        p.style = Paint.Style.STROKE
+        rect.set(dp(1.5f), dp(1.5f), width - dp(1.5f), height - dp(1.5f))
+        p.strokeWidth = dp(7f)
+        p.alpha = 50
+        c.drawRoundRect(rect, dp(14f), dp(14f), p)
+        p.strokeWidth = dp(2.5f)
+        p.alpha = 255
+        c.drawRoundRect(rect, dp(14f), dp(14f), p)
+        p.shader = null
+        p.style = Paint.Style.FILL
+    }
+
+    private fun drawRgbKey(c: Canvas, k: Key, isP: Boolean) {
+        hsv[0] = ((k.r.centerX() / width) * 300f + (k.r.centerY() / height) * 90f + phase()) % 360f
+        hsv[1] = 0.85f
+        hsv[2] = 1f
+        val col = Color.HSVToColor(hsv)
+        p.style = Paint.Style.STROKE
+        if (isP) {
+            p.strokeWidth = dp(6f)
+            p.color = withA(col, 90)
+            drawShape(c, k.r, 0f, p)
+        }
+        p.strokeWidth = dp(1.8f)
+        p.color = col
+        drawShape(c, k.r, 0f, p)
+        p.style = Paint.Style.FILL
     }
 
     private fun drawToolbar(c: Canvas) {
@@ -365,10 +467,24 @@ class KeyboardView(ctx: Context) : View(ctx) {
             else -> t.special
         }
         if (!flat || isP) {
-            p.color = Color.argb(55, 0, 0, 0)
-            c.drawRoundRect(k.r.left, k.r.top + dp(1.6f), k.r.right, k.r.bottom + dp(1.6f), dp(9f), dp(9f), p)
-            p.color = bg
-            c.drawRoundRect(k.r, dp(9f), dp(9f), p)
+            val photo = bgScaled != null
+            if (shape == 4) {
+                p.color = withA(bg, if (isP) 200 else 70)
+                drawShape(c, k.r, 0f, p)
+                p.style = Paint.Style.STROKE
+                p.strokeWidth = dp(1.6f)
+                p.color = withA(if (k.kind == K_CHAR || k.kind == K_SPACE) t.accent else t.text, 190)
+                drawShape(c, k.r, 0f, p)
+                p.style = Paint.Style.FILL
+            } else {
+                if (!photo) {
+                    p.color = Color.argb(55, 0, 0, 0)
+                    drawShape(c, k.r, dp(1.6f), p)
+                }
+                p.color = if (photo) withA(bg, 185) else bg
+                drawShape(c, k.r, 0f, p)
+            }
+            if ((rgb and 1) != 0) drawRgbKey(c, k, isP)
         }
         val fg = if (k.kind == K_ENTER || catSel || shiftOn) t.accentText else t.text
         if (k.icon != 0) {
