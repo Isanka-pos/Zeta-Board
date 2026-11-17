@@ -17,6 +17,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         fun enter()
         fun cursor(dir: Int)
         fun settings()
+        /** Text just before the cursor (used by Zeta Bold). */
+        fun before(): CharSequence? = null
     }
 
     val kv = KeyboardView(ctx)
@@ -70,16 +72,74 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     // ---- KeyboardView.Listener ----
 
+    // ---- Zeta Bold: every word you type is wrapped like *word* ----
+
+    private var wordOpen = false
+
+    private fun zetaBold(): Boolean = Prefs.getI(context, "keyfont", 0) == KbFonts.ZETA_BOLD
+
+    private fun isWordCh(s: String): Boolean {
+        if (s.isEmpty()) return false
+        val cp = s.codePointAt(0)
+        if (Character.isLetterOrDigit(cp)) return true
+        val t = Character.getType(cp)
+        return t == Character.NON_SPACING_MARK.toInt() || t == Character.COMBINING_SPACING_MARK.toInt()
+    }
+
+    private fun boldCommit(s: String) {
+        if (isWordCh(s)) {
+            if (!wordOpen) {
+                wordOpen = true
+                out.commit("*" + s)
+            } else {
+                out.commit(s)
+            }
+        } else if (wordOpen) {
+            wordOpen = false
+            out.commit("*" + s)
+        } else {
+            out.commit(s)
+        }
+    }
+
+    /** Call when the text field changes or the cursor jumps, so a half-finished word is not tracked any more. */
+    fun resetWord() {
+        wordOpen = false
+    }
+
     override fun onText(s: String) {
-        if (routed()) panel.insert(s) else out.commit(s)
+        if (routed()) panel.insert(s) else if (zetaBold()) boldCommit(s) else out.commit(s)
     }
 
     override fun onAction(a: Int) {
         when (a) {
-            KeyboardView.DEL -> if (routed()) panel.backspace() else out.del()
-            KeyboardView.ENTER -> if (routed()) panel.enter() else out.enter()
-            KeyboardView.LEFT -> if (!routed()) out.cursor(-1)
-            KeyboardView.RIGHT -> if (!routed()) out.cursor(1)
+            KeyboardView.DEL -> if (routed()) panel.backspace() else {
+                out.del()
+                if (wordOpen) {
+                    val b = out.before()
+                    if (b == null || b.isEmpty()) {
+                        wordOpen = false
+                    } else if (b[b.length - 1] == '*') {
+                        out.del() // the opening star of a word that is now empty
+                        wordOpen = false
+                    }
+                }
+            }
+            KeyboardView.ENTER -> if (routed()) panel.enter() else {
+                if (wordOpen) {
+                    wordOpen = false
+                    out.commit("*")
+                }
+                out.enter()
+            }
+            KeyboardView.LEFT -> if (!routed()) {
+                wordOpen = false
+                out.cursor(-1)
+            }
+            KeyboardView.RIGHT -> if (!routed()) {
+                wordOpen = false
+                out.cursor(1)
+            }
             KeyboardView.CLIPBOARD -> openClipboard()
             KeyboardView.SETTINGS -> out.settings()
         }
@@ -88,6 +148,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     // ---- ClipPanel.Callback ----
 
     override fun onPaste(text: String) {
+        wordOpen = false
         out.commit(text)
         closeClipboard()
     }

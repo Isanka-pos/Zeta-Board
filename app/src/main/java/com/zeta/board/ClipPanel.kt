@@ -125,9 +125,10 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
 
         scroll.isVerticalScrollBarEnabled = false
         scroll.overScrollMode = View.OVER_SCROLL_NEVER
+        scroll.isFillViewport = true
         list.orientation = LinearLayout.VERTICAL
         list.setPadding(0, 0, 0, dp(10))
-        scroll.addView(list, ViewGroup.LayoutParams(M, W))
+        scroll.addView(list, ViewGroup.LayoutParams(M, M))
         main.addView(scroll, LinearLayout.LayoutParams(M, 0, 1f))
         addView(main, FrameLayout.LayoutParams(M, M))
 
@@ -191,8 +192,7 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
 
     fun backspace() {
         if (!typing || buffer.isEmpty()) return
-        val n = if (buffer.length >= 2 && Character.isLowSurrogate(buffer[buffer.length - 1]) &&
-            Character.isHighSurrogate(buffer[buffer.length - 2])) 2 else 1
+        val n = Emojis.lastClusterLength(buffer).coerceIn(1, buffer.length)
         buffer.setLength(buffer.length - n)
         onBufferChanged()
     }
@@ -364,7 +364,7 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
         val pinned = vm.pinned
         val recent = vm.recent
         if (pinned.isEmpty() && recent.isEmpty()) {
-            list.addView(emptyState())
+            list.addView(emptyState(), LinearLayout.LayoutParams(M, M))
             animateNext = false
             return
         }
@@ -394,8 +394,8 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
     private fun emptyState(): View {
         val box = LinearLayout(context)
         box.orientation = LinearLayout.VERTICAL
-        box.gravity = Gravity.CENTER_HORIZONTAL
-        box.setPadding(dp(24), dp(24), dp(24), dp(12))
+        box.gravity = Gravity.CENTER
+        box.setPadding(dp(24), dp(8), dp(24), dp(8))
         val circle = FrameLayout(context)
         val cb2 = GradientDrawable()
         cb2.shape = GradientDrawable.OVAL
@@ -413,7 +413,8 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
         t1.textSize = 16f
         t1.typeface = Typeface.DEFAULT_BOLD
         t1.setTextColor(th.text)
-        t1.setPadding(0, dp(12), 0, dp(4))
+        t1.gravity = Gravity.CENTER
+        t1.setPadding(0, dp(10), 0, dp(4))
         val t2 = TextView(context)
         t2.text = if (searching) "Try a different search." else "Copy any text and it will appear here.\nPin favourites to keep them forever."
         t2.textSize = 12f

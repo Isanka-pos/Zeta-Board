@@ -65,10 +65,11 @@ class ClipManagerActivity : Activity() {
 
         val sv = ScrollView(this)
         sv.isVerticalScrollBarEnabled = false
+        sv.isFillViewport = true
         list = LinearLayout(this)
         list.orientation = LinearLayout.VERTICAL
         list.setPadding(0, dp(4), 0, dp(24))
-        sv.addView(list, ViewGroup.LayoutParams(MATCH, WRAP))
+        sv.addView(list, ViewGroup.LayoutParams(MATCH, MATCH))
         root.addView(sv, LinearLayout.LayoutParams(MATCH, 0, 1f))
         setContentView(root)
     }
@@ -180,7 +181,7 @@ class ClipManagerActivity : Activity() {
             stats.text = total.toString() + " clips  \u2022  " + pinned.size + " pinned"
         }
         if (total == 0) {
-            list.addView(emptyView())
+            list.addView(emptyView(), LinearLayout.LayoutParams(MATCH, MATCH))
             return
         }
         if (pinned.isNotEmpty()) {
@@ -203,8 +204,8 @@ class ClipManagerActivity : Activity() {
     private fun emptyView(): View {
         val box = LinearLayout(this)
         box.orientation = LinearLayout.VERTICAL
-        box.gravity = Gravity.CENTER_HORIZONTAL
-        box.setPadding(dp(24), dp(48), dp(24), dp(12))
+        box.gravity = Gravity.CENTER
+        box.setPadding(dp(24), dp(12), dp(24), dp(48))
         val searching = vm.query.isNotEmpty()
         val t1 = tv(if (searching) "No matches" else "Clipboard is empty", 17f, Color.WHITE, true)
         t1.gravity = Gravity.CENTER

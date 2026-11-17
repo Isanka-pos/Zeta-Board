@@ -8,3 +8,4 @@
 - Clipboard Manager (open it from the app home screen, or the clipboard icon on the keyboard)
 - Update check every 45 minutes (background job + timer while the keyboard/app is running)
 - Logo: replace `app/src/main/res/drawable-nodpi/app_logo.jpg` (square, 512x512) to change it
+- Emoji panel: categories, recents, skin tones (hold), swipe pages. Key font + emoji font options are in the app home screen.

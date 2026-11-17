@@ -58,6 +58,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val out: String = label
     ) {
         val r = RectF()
+        var altStr: List<String>? = null
     }
 
     var listener: Listener? = null
@@ -75,7 +76,13 @@ class KeyboardView(ctx: Context) : View(ctx) {
     // layers: 0 abc, 1 symbols, 2 more symbols, 3 sinhala, 4 emoji
     private var layer = 0
     private var shift = 0
-    private var emojiCat = 0
+    private var emojiCat = 1
+    private var emojiEmpty = false
+    private var swiping = false
+    private var downInGrid = false
+    private val emojiCache = HashMap<Int, List<String>>()
+    private var fontStamp = -1L
+    private var keyFontSel = -1
     private var emojiPage = 0
     private var emojiPages = 1
     private var rows: List<List<Key>> = emptyList()
@@ -108,6 +115,11 @@ class KeyboardView(ctx: Context) : View(ctx) {
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
+    // emoji are drawn with their own paint so a custom key font never changes how they look
+    private val ep = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.DEFAULT
+    }
     private val rect = RectF()
     private val altRect = RectF()
     private val toolRects = Array(3) { RectF() }
@@ -131,22 +143,51 @@ class KeyboardView(ctx: Context) : View(ctx) {
         'u' to "ûüùúū", 's' to "ß", 'c' to "çćč", 'n' to "ñń", 'y' to "ÿý", 'z' to "žźż"
     )
 
-    private fun cps(r: Iterable<Int>): List<String> = r.map { String(Character.toChars(it)) }
+    // ---------- emoji helpers ----------
 
-    private val emojiCats: List<Pair<String, List<String>>> by lazy {
-        listOf(
-            "Face" to cps(0x1F600..0x1F64F),
-            "Love" to cps((0x1F493..0x1F49F) + listOf(0x1F48B, 0x1F339, 0x1F525, 0x2728, 0x1F31F, 0x1F389)),
-            "Hand" to cps((0x1F446..0x1F450) + listOf(0x1F64C, 0x1F64F, 0x1F4AA, 0x1F91D, 0x1F91E)),
-            "Pets" to cps(0x1F400..0x1F43C),
-            "Food" to cps(0x1F345..0x1F37A),
-            "Fun" to cps((0x1F3A0..0x1F3C4) + (0x1F680..0x1F68A))
-        )
+    private fun supported(e: String): Boolean = ep.hasGlyph(e)
+
+    private fun emojiList(i: Int): List<String> {
+        if (i == Emojis.RECENT) return Emojis.recents(context).filter { supported(it) }
+        return emojiCache.getOrPut(i) { Emojis.cats[i].all.filter { supported(it) } }
+    }
+
+    private fun perPage(): Int = (if (numRow) 4 else 3) * 8
+
+    private fun pagesOf(cat: Int): Int = ((emojiList(cat).size + perPage() - 1) / perPage()).coerceAtLeast(1)
+
+    private fun emojiSwipe(dir: Int) {
+        var cat = emojiCat
+        var p = emojiPage + dir
+        if (p >= emojiPages) {
+            if (cat < Emojis.cats.size - 1) {
+                cat++
+                p = 0
+            } else {
+                p = emojiPages - 1
+            }
+        } else if (p < 0) {
+            val pc = cat - 1
+            if (pc >= 0 && emojiList(pc).isNotEmpty()) {
+                cat = pc
+                p = pagesOf(pc) - 1
+            } else {
+                p = 0
+            }
+        }
+        emojiCat = cat
+        emojiPage = p
+        rebuild()
     }
 
     private val longPress = Runnable {
         val k = pressed
-        if (k != null && k.alts.isNotEmpty()) {
+        val tone = k?.altStr
+        if (k != null && tone != null && tone.isNotEmpty()) {
+            altList = tone
+            altSel = altSelAt(k, curX)
+            invalidate()
+        } else if (k != null && k.alts.isNotEmpty()) {
             val up = layer == 0 && shift > 0
             altList = k.alts.map { ch -> if (up) ch.toString().uppercase() else ch.toString() }
             altSel = altSelAt(k, curX)
@@ -178,6 +219,15 @@ class KeyboardView(ctx: Context) : View(ctx) {
         rgb = Prefs.getI(c, "rgb", 0)
         rgbSpeed = Prefs.getI(c, "rgbspeed", 5)
         bgDim = Prefs.getI(c, "bgdim", 35)
+        val fs = KbFonts.stamp(c)
+        val ksel = Prefs.getI(c, "keyfont", 0)
+        if (fs != fontStamp || ksel != keyFontSel) {
+            fontStamp = fs
+            keyFontSel = ksel
+            tp.typeface = KbFonts.keyTypeface(c)
+            ep.typeface = KbFonts.emojiTypeface(c) ?: Typeface.DEFAULT
+            emojiCache.clear()
+        }
         val bf = KbBg.file(c)
         val stamp = if (bf.exists()) bf.lastModified() + bf.length() else 0L
         if (stamp != bgStamp) {
@@ -254,20 +304,25 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 out.add(bottom(2))
             }
             else -> {
-                val list = emojiCats[emojiCat].second
-                emojiPages = (list.size + 23) / 24
+                val eRows = if (numRow) 4 else 3
+                val per = eRows * 8
+                val list = emojiList(emojiCat)
+                emojiEmpty = list.isEmpty()
+                emojiPages = ((list.size + per - 1) / per).coerceAtLeast(1)
                 emojiPage = emojiPage.coerceIn(0, emojiPages - 1)
-                val slice = list.drop(emojiPage * 24).take(24)
-                for (chunk in slice.chunked(8)) {
-                    val r = ArrayList<Key>()
-                    for (e in chunk) r.add(Key(e, K_CHAR))
-                    while (r.size < 8) r.add(Key("", K_PAD))
-                    out.add(r)
+                val slice = list.drop(emojiPage * per).take(per)
+                for (r in 0 until eRows) {
+                    val row = ArrayList<Key>()
+                    for (col in 0 until 8) {
+                        val e = slice.getOrNull(r * 8 + col)
+                        row.add(if (e != null) Key(e, K_CHAR) else Key("", K_PAD))
+                    }
+                    out.add(row)
                 }
                 val bot = ArrayList<Key>()
-                bot.add(Key("ABC", K_LAYER, 1.5f, arg = 0))
-                emojiCats.forEachIndexed { i, cat -> bot.add(Key(cat.first, K_CAT, 1.2f, arg = i)) }
-                bot.add(Key("", K_DEL, 1.3f, icon = R.drawable.ic_backspace))
+                bot.add(Key("ABC", K_LAYER, 1.4f, arg = 0))
+                Emojis.cats.forEachIndexed { i, cat -> bot.add(Key(cat.icon, K_CAT, 1f, arg = i)) }
+                bot.add(Key("", K_DEL, 1.2f, icon = R.drawable.ic_backspace))
                 out.add(bot)
             }
         }
@@ -284,17 +339,18 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val w = width.toFloat()
         if (w <= 0f || rows.isEmpty()) return
         val padX = dp(4f)
-        val gap = dp(5f)
+        val vgap = dp(5f)
         val top = toolH
         val rh = (height - top - dp(6f)) / rows.size
         rows.forEachIndexed { i, row ->
+            val gap = if (layer == 4 && i == rows.size - 1) dp(1.5f) else dp(5f)
             var sum = 0f
             for (k in row) sum += k.w
             val avail = w - 2 * padX - gap * (row.size - 1)
             var x = padX
             for (k in row) {
                 val kw = avail * k.w / sum
-                k.r.set(x, top + i * rh + gap / 2f, x + kw, top + (i + 1) * rh - gap / 2f)
+                k.r.set(x, top + i * rh + vgap / 2f, x + kw, top + (i + 1) * rh - vgap / 2f)
                 x += kw + gap
             }
         }
@@ -338,6 +394,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun baseline(cy: Float): Float = cy - (tp.descent() + tp.ascent()) / 2f
 
+    private fun baselineE(cy: Float): Float = cy - (ep.descent() + ep.ascent()) / 2f
+
     override fun onDraw(c: Canvas) {
         val t = theme
         val bs = bgScaled
@@ -354,6 +412,13 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
         drawToolbar(c)
         for (row in rows) for (k in row) drawKey(c, k)
+        if (layer == 4 && emojiEmpty && rows.size > 1) {
+            val ty = (rows.first().first().r.top + rows[rows.size - 2].first().r.bottom) / 2f
+            tp.textSize = dp(13f)
+            tp.color = t.text
+            tp.alpha = 150
+            c.drawText("No recent emoji yet", width / 2f, baseline(ty), tp)
+        }
         drawPopups(c)
         if ((rgb and 2) != 0) drawBorder(c)
         if (rgb != 0 && isShown) postInvalidateOnAnimation()
@@ -433,7 +498,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.textSize = dp(12f)
         tp.color = t.text
         tp.alpha = 200
-        c.drawText("ZETA BOARD", lx + s + dp(8f), baseline(h / 2f), tp)
+        c.drawText(if (layer == 4) Emojis.cats[emojiCat].name else "ZETA BOARD", lx + s + dp(8f), baseline(h / 2f), tp)
         tp.letterSpacing = 0f
 
         for (i in 0..2) {
@@ -446,7 +511,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             }
             icon(c, toolIcons[i], toolRects[i], t.text, dp(20f))
         }
-        if (layer == 4) {
+        if (layer == 4 && emojiPages > 1) {
             tp.textAlign = Paint.Align.RIGHT
             tp.textSize = dp(11f)
             tp.color = t.text
@@ -459,9 +524,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private fun drawKey(c: Canvas, k: Key) {
         if (k.kind == K_PAD) return
         val t = theme
-        val isP = k === pressed && altList.isEmpty()
-        val flat = layer == 4 && k.kind == K_CHAR
+        val isP = k === pressed && altList.isEmpty() && !swiping
         val catSel = k.kind == K_CAT && k.arg == emojiCat
+        val flat = layer == 4 && (k.kind == K_CHAR || (k.kind == K_CAT && !catSel))
         val shiftOn = k.kind == K_SHIFT && shift > 0
         val bg = when {
             isP -> blend(t.key, t.accent, 0.55f)
@@ -498,16 +563,21 @@ class KeyboardView(ctx: Context) : View(ctx) {
             }
             return
         }
+        val rh = k.r.height()
+        if (layer == 4 && (k.kind == K_CHAR || k.kind == K_CAT)) {
+            ep.textSize = if (k.kind == K_CAT) minOf(rh * 0.5f, k.r.width() * 0.72f) else minOf(rh * 0.62f, k.r.width() * 0.64f)
+            ep.alpha = if (k.kind == K_CAT && !catSel) 175 else 255
+            c.drawText(k.label, k.r.centerX(), baselineE(k.r.centerY()), ep)
+            return
+        }
         var label = k.label
         tp.color = fg
-        val rh = k.r.height()
         when {
             k.kind == K_SPACE -> {
                 label = if (layer == 3) "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD" else "ZETA BOARD"
                 tp.textSize = rh * 0.24f
                 tp.alpha = 140
             }
-            layer == 4 && k.kind == K_CHAR -> tp.textSize = rh * 0.55f
             k.kind == K_CHAR -> {
                 if (layer == 0 && shift > 0) label = label.uppercase()
                 tp.textSize = rh * 0.42f
@@ -545,9 +615,15 @@ class KeyboardView(ctx: Context) : View(ctx) {
                     p.color = t.accent
                     c.drawRoundRect(rect, dp(9f), dp(9f), p)
                 }
-                tp.color = if (i == altSel) t.accentText else t.text
-                tp.textSize = dp(22f)
-                c.drawText(s, l + i * iw + iw / 2f, baseline(top + ih / 2f), tp)
+                if (layer == 4) {
+                    ep.textSize = dp(24f)
+                    ep.alpha = 255
+                    c.drawText(s, l + i * iw + iw / 2f, baselineE(top + ih / 2f), ep)
+                } else {
+                    tp.color = if (i == altSel) t.accentText else t.text
+                    tp.textSize = dp(22f)
+                    c.drawText(s, l + i * iw + iw / 2f, baseline(top + ih / 2f), tp)
+                }
             }
         } else if (preview && k.kind == K_CHAR && layer != 4) {
             val bw = k.r.width() * 1.4f
@@ -614,6 +690,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         cursorMoved = false
         altList = emptyList()
         altSel = -1
+        swiping = false
+        downInGrid = layer == 4 && y >= toolH && rows.size > 1 && y < rows[rows.size - 1].first().r.top
         if (y < toolH) {
             pressed = null
             pressedTool = toolRects.indexOfFirst { it.contains(x, y) }
@@ -635,6 +713,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
             handler.postDelayed(repeat, 400)
         } else if (k.alts.isNotEmpty()) {
             handler.postDelayed(longPress, 380)
+        } else if (layer == 4 && k.kind == K_CHAR) {
+            if (k.altStr == null) k.altStr = Emojis.toneVariants(k.label, ep)
+            if (k.altStr!!.isNotEmpty()) handler.postDelayed(longPress, 380)
         }
         invalidate()
     }
@@ -642,6 +723,15 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private fun move(x: Float, y: Float) {
         curX = x
         if (pressedTool >= 0) return
+        if (layer == 4 && altList.isEmpty() && downInGrid) {
+            val pk = pressed
+            if ((pk == null || pk.kind == K_CHAR) && abs(x - downX) > dp(14f)) {
+                swiping = true
+                handler.removeCallbacks(longPress)
+                invalidate()
+                return
+            }
+        }
         val k = pressed ?: return
         if (altList.isNotEmpty()) {
             altSel = altSelAt(k, x)
@@ -671,28 +761,30 @@ class KeyboardView(ctx: Context) : View(ctx) {
         handler.removeCallbacks(repeat)
         val k = pressed
         val tool = pressedTool
+        val wasSwipe = swiping
         pressed = null
         pressedTool = -1
         activeId = -1
+        swiping = false
         if (doCommit) {
             if (tool >= 0) {
                 toolTap(tool)
-            } else if (k != null) {
-                if (altList.isNotEmpty()) {
-                    val s = altList.getOrNull(altSel)
-                    if (s != null) {
-                        listener?.onText(s)
-                        afterSentence = false
-                        if (shift == 1) {
-                            shift = 0
-                            rebuild()
-                        }
+            } else if (altList.isNotEmpty()) {
+                val s = altList.getOrNull(altSel)
+                if (s != null) {
+                    listener?.onText(s)
+                    if (layer == 4) Emojis.addRecent(context, s)
+                    afterSentence = false
+                    if (shift == 1) {
+                        shift = 0
+                        rebuild()
                     }
-                } else if (cursorMoved || k.kind == K_DEL) {
+                }
+            } else if (layer == 4 && wasSwipe) {
+                if (abs(curX - downX) > dp(50f)) emojiSwipe(if (curX < downX) 1 else -1)
+            } else if (k != null) {
+                if (cursorMoved || k.kind == K_DEL) {
                     // nothing to commit
-                } else if (layer == 4 && k.kind == K_CHAR && abs(curX - downX) > dp(50f)) {
-                    emojiPage += if (curX < downX) 1 else -1
-                    rebuild()
                 } else {
                     commitKey(k)
                 }
@@ -720,6 +812,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             K_CHAR -> {
                 val s = if (layer == 0 && shift > 0) k.out.uppercase() else k.out
                 listener?.onText(s)
+                if (layer == 4) Emojis.addRecent(context, s)
                 afterSentence = s == "." || s == "!" || s == "?"
                 if (shift == 1) {
                     shift = 0
@@ -747,6 +840,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
             }
             K_LAYER -> {
                 layer = k.arg
+                if (layer == 4) {
+                    emojiPage = 0
+                    emojiCat = if (emojiList(Emojis.RECENT).isNotEmpty()) Emojis.RECENT else 1
+                }
                 rebuild()
             }
             K_CAT -> {

@@ -23,7 +23,14 @@ class ZetaIME : InputMethodService() {
         override fun del() {
             val ic = currentInputConnection ?: return
             val sel = ic.getSelectedText(0)
-            if (sel.isNullOrEmpty()) ic.deleteSurroundingTextInCodePoints(1, 0) else ic.commitText("", 1)
+            if (!sel.isNullOrEmpty()) {
+                ic.commitText("", 1)
+                return
+            }
+            // delete a whole emoji (flag, family, skin tone, heart + selector...) in one tap
+            val before = ic.getTextBeforeCursor(32, 0)
+            val n = if (before.isNullOrEmpty()) 0 else Emojis.lastClusterLength(before)
+            if (n > 0) ic.deleteSurroundingText(n, 0) else ic.deleteSurroundingTextInCodePoints(1, 0)
         }
 
         override fun enter() {
@@ -42,6 +49,8 @@ class ZetaIME : InputMethodService() {
         override fun cursor(dir: Int) {
             sendDownUpKeyEvents(if (dir < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT)
         }
+
+        override fun before(): CharSequence? = currentInputConnection?.getTextBeforeCursor(2, 0)
 
         override fun settings() {
             startActivity(Intent(this@ZetaIME, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -86,6 +95,7 @@ class ZetaIME : InputMethodService() {
             (cls == InputType.TYPE_CLASS_NUMBER && v == InputType.TYPE_NUMBER_VARIATION_PASSWORD) ||
             ((info?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         h.closeClipboard()
+        h.resetWord()
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.kv.reload()
         val layer = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) 1 else 0
@@ -96,6 +106,7 @@ class ZetaIME : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         host?.closeClipboard()
+        host?.resetWord()
         super.onFinishInputView(finishingInput)
     }
 
