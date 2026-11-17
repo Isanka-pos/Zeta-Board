@@ -542,6 +542,7 @@ class MainActivity : Activity() {
         MenuEntry("typing", "Typing & Fonts", "Text style, key font, feel", R.drawable.ic_font),
         MenuEntry("clipboard", "Clipboard", "History and manager", R.drawable.ic_paste),
         MenuEntry("sticker", "Sticker Maker", "Photo to WhatsApp sticker", R.drawable.ic_sticker),
+        MenuEntry("privacy", "Privacy", "Screenshot protection", R.drawable.ic_shield),
         MenuEntry("updates", "Updates", "Version and what's new", R.drawable.ic_download),
         MenuEntry("about", "About", "Owner and contact", R.drawable.ic_info)
     )
@@ -800,6 +801,7 @@ class MainActivity : Activity() {
         put(typingCard(), "typing")
         put(clipManagerCard(), "clipboard")
         put(clipSettingsCard(), "clipboard")
+        put(privacyCard(), "privacy")
         put(updatesCard(), "updates")
         put(aboutCard(), "about")
         val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Dev", 12f, Pal.MUTED)
@@ -943,7 +945,7 @@ class MainActivity : Activity() {
         return c
     }
 
-    private fun switchRow(title: String, desc: String, key: String, def: Boolean): View {
+    private fun switchRow(title: String, desc: String, key: String, def: Boolean, enabled: Boolean = true, onChange: (() -> Unit)? = null): View {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
@@ -958,9 +960,11 @@ class MainActivity : Activity() {
         val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
         sw.trackTintList = ColorStateList(states, intArrayOf(Pal.PURPLE, Color.argb(60, 255, 255, 255)))
         sw.thumbTintList = ColorStateList.valueOf(Color.WHITE)
+        sw.isEnabled = enabled
         sw.setOnCheckedChangeListener { _, v ->
             Prefs.setB(this, key, v)
             kv.reload()
+            onChange?.invoke()
         }
         row.addView(sw)
         return row
@@ -996,6 +1000,23 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
         c.addView(sb, LinearLayout.LayoutParams(MATCH, WRAP))
+        return c
+    }
+
+    private fun privacyCard(): View {
+        val c = card("Privacy", "Screenshot protection")
+        val can = ScreenGuard.canWarn()
+        val desc = if (can) "ON: screenshots and screen recording are blocked everywhere in the app. OFF: allowed, but you get a warning banner and notification when one is taken"
+        else "Screenshots and screen recording are blocked everywhere in the app"
+        c.addView(switchRow("Block screenshots", desc, ScreenGuard.KEY, true, can) { ScreenGuard.refreshAll() })
+        val note = tv(
+            if (can) "Android cannot report a screenshot it has already blocked, so blocking and the warning cannot run at the same time. When blocked, Android shows its own message at the top."
+            else "Warning alerts need Android 14 or newer. On this phone screenshots are always blocked and Android shows its own message.",
+            12f, Pal.MUTED
+        )
+        val nlp = LinearLayout.LayoutParams(MATCH, WRAP)
+        nlp.topMargin = dp(6)
+        c.addView(note, nlp)
         return c
     }
 

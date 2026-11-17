@@ -110,7 +110,7 @@ class ZetaIME : InputMethodService() {
     override fun onCreateInputView(): View {
         val h = KeyboardHost(this, output)
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
-        h.onSecure = { on -> ScreenGuard.setSecure(window?.window, on) }
+        h.onSecure = { on -> ScreenGuard.setSecure(window?.window, on && ScreenGuard.blocking(this)) }
         host = h
         return h
     }

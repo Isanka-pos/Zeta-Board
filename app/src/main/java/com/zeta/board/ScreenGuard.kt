@@ -24,11 +24,16 @@ import android.widget.TextView
 import androidx.annotation.RequiresApi
 
 /**
- * Privacy guard: every screen of the app is marked FLAG_SECURE, so screenshots and screen recordings are
- * blocked and the app preview in "Recent apps" is hidden.
+ * Screenshot privacy, with two modes (setting "Block screenshots" in the Privacy card):
  *
- * When someone tries to take a screenshot (Android 14+), a warning slides in from the top of the screen
- * and a heads-up notification is shown as well.
+ *  - BLOCK (default, every Android version): all screens and dialogs use FLAG_SECURE. Screenshots and screen
+ *    recordings are blocked and the "Recent apps" preview is hidden. Android itself tells the user that the
+ *    screenshot was blocked.
+ *  - WARN (Android 14+ only): screenshots are allowed, but the moment one is taken a warning banner slides in
+ *    from the top and a heads-up notification is shown.
+ *
+ * The two cannot run together: Android only reports screenshots that really happened, and a FLAG_SECURE window
+ * is never reported (the capture is refused before the app is told).
  */
 object ScreenGuard {
     private const val CHANNEL = "privacy"
@@ -40,27 +45,38 @@ object ScreenGuard {
 
     private val main = Handler(Looper.getMainLooper())
     private val callbacks = HashMap<Activity, Any>()
+    private val live = ArrayList<Activity>() // started (visible) activities
     private var lastWarn = 0L
+
+    const val KEY = "shot_block"
+
+    /** Screenshot detection exists only from Android 14. */
+    fun canWarn(): Boolean = Build.VERSION.SDK_INT >= 34
+
+    /** True when screenshots must be blocked (always on Android 13 and older). */
+    fun blocking(ctx: Context): Boolean = !canWarn() || Prefs.getB(ctx.applicationContext, KEY, true)
 
     /** Call once from Application.onCreate(). Covers every Activity of the app automatically. */
     fun install(app: Application) {
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(a: Activity, b: Bundle?) {
                 if (a is StickerActivity) return // invisible helper screen
-                secure(a.window)
+                applyMode(a)
             }
 
             override fun onActivityStarted(a: Activity) {
                 if (a is StickerActivity) return
-                secure(a.window)
-                if (Build.VERSION.SDK_INT >= 34) listen(a)
+                if (!live.contains(a)) live.add(a)
+                applyMode(a)
             }
 
             override fun onActivityStopped(a: Activity) {
+                live.remove(a)
                 if (Build.VERSION.SDK_INT >= 34) unlisten(a)
             }
 
             override fun onActivityDestroyed(a: Activity) {
+                live.remove(a)
                 callbacks.remove(a)
             }
 
@@ -70,8 +86,25 @@ object ScreenGuard {
         })
     }
 
-    /** Blocks screenshots / screen recording / recent-apps preview for this window (activities, dialogs, keyboard). */
-    fun secure(w: Window?) = setSecure(w, true)
+    /** Puts [a] in the current mode: FLAG_SECURE in BLOCK mode, screenshot listener in WARN mode. */
+    private fun applyMode(a: Activity) {
+        val block = blocking(a)
+        setSecure(a.window, block)
+        if (Build.VERSION.SDK_INT >= 34) {
+            if (block) unlisten(a) else if (live.contains(a)) listen(a)
+        }
+    }
+
+    /** Re-applies the mode on every screen that is open right now (call after the setting changes). */
+    fun refreshAll() {
+        main.post { ArrayList(live).forEach { if (!it.isFinishing && !it.isDestroyed) applyMode(it) } }
+    }
+
+    /** Blocks screenshots for this window (dialogs, keyboard panels) when BLOCK mode is on. */
+    fun secure(w: Window?) {
+        val c = w?.context ?: return
+        setSecure(w, blocking(c))
+    }
 
     fun setSecure(w: Window?, on: Boolean) {
         try {
@@ -105,7 +138,7 @@ object ScreenGuard {
 
     // ---- the warning ----
 
-    /** Shows the top banner on [a] and a heads-up notification. Safe to call from any screen. */
+    /** Shows the top banner on [a] and a heads-up notification (WARN mode). */
     fun warn(a: Activity) {
         val now = System.currentTimeMillis()
         if (now - lastWarn < DEBOUNCE_MS) return
@@ -142,12 +175,12 @@ object ScreenGuard {
         val col = LinearLayout(a)
         col.orientation = LinearLayout.VERTICAL
         val title = TextView(a)
-        title.text = "Screenshot blocked"
+        title.text = "Screenshot detected"
         title.setTextColor(Color.WHITE)
         title.textSize = 15f
         title.setTypeface(title.typeface, android.graphics.Typeface.BOLD)
         val sub = TextView(a)
-        sub.text = "Screenshots are not allowed in Zeta Board to protect your privacy."
+        sub.text = "A screenshot of Zeta Board was just taken. Keep private content private."
         sub.setTextColor(Color.parseColor("#E9D5A6"))
         sub.textSize = 12f
         col.addView(title)
@@ -175,15 +208,15 @@ object ScreenGuard {
             if (!nm.areNotificationsEnabled()) return
             if (nm.getNotificationChannel(CHANNEL) == null) {
                 val ch = NotificationChannel(CHANNEL, "Privacy alerts", NotificationManager.IMPORTANCE_HIGH)
-                ch.description = "Warns you when a screenshot is attempted inside Zeta Board"
+                ch.description = "Warns you when a screenshot is taken inside Zeta Board"
                 nm.createNotificationChannel(ch)
             }
             val n = Notification.Builder(ctx, CHANNEL)
                 .setSmallIcon(R.drawable.ic_warning)
                 .setColor(AMBER)
                 .setCategory(Notification.CATEGORY_STATUS)
-                .setContentTitle("\u26A0 Screenshot blocked")
-                .setContentText("Screenshots are not allowed in Zeta Board to protect your privacy.")
+                .setContentTitle("\u26A0 Screenshot detected")
+                .setContentText("A screenshot of Zeta Board was just taken.")
                 .setTimeoutAfter(6000L)
                 .setAutoCancel(true)
                 .build()

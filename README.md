@@ -27,6 +27,8 @@
 - API key: defaults to the key in app/build.gradle.kts. To keep it out of the repo, add a GitHub secret named STICKER_KEY (the workflow passes it to the build).
 
 ## Privacy
-- Every screen and dialog of the app uses FLAG_SECURE: screenshots / screen recording are blocked and the Recent-apps preview is hidden.
-- Android 14+: when a screenshot is attempted, a warning banner slides in from the top and a heads-up notification is shown (uses the DETECT_SCREEN_CAPTURE permission, granted automatically).
-- The keyboard window is protected only while the clipboard or sticker panel is open, so normal typing does not stop screenshots of other apps.
+- Menu -> Privacy -> "Block screenshots" (ON by default).
+- **ON** (all Android versions): every screen and dialog uses FLAG_SECURE. Screenshots / screen recording are blocked and the Recent-apps preview is hidden. Android shows its own "can't take screenshot" message.
+- **OFF** (Android 14+ only): screenshots are allowed, but a warning banner slides in from the top and a heads-up notification is shown as soon as one is taken (needs the notification permission for the notification; the banner always works).
+- The two cannot run together: Android only reports screenshots that actually happened, and never for a FLAG_SECURE window.
+- The keyboard window is protected only while the clipboard or sticker panel is open (BLOCK mode), so normal typing does not stop screenshots of other apps.
