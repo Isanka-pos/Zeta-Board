@@ -5,6 +5,8 @@ plugins {
 
 // Set by GitHub Actions: every build gets a higher version than the previous one
 val verCode: Int = (project.findProperty("verCode") as String?)?.toIntOrNull() ?: 1
+// Sticker API key. Override from CI with -PstickerKey=... (GitHub secret STICKER_KEY) to keep it out of the repo.
+val stickerKey: String = (project.findProperty("stickerKey") as String?)?.takeIf { it.isNotBlank() } ?: "wxa_f_26c1633298"
 val repo: String = (project.findProperty("githubRepo") as String?) ?: System.getenv("GITHUB_REPOSITORY") ?: ""
 
 android {
@@ -18,6 +20,7 @@ android {
         versionCode = verCode
         versionName = "1.0.$verCode"
         buildConfigField("String", "REPO", "\"$repo\"")
+        buildConfigField("String", "STICKER_KEY", "\"$stickerKey\"")
     }
 
     buildFeatures { buildConfig = true }

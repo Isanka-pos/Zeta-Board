@@ -4,4 +4,5 @@
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/bg</item>
     </style>
+    <style name="StickerPickTheme" parent="android:Theme.Translucent.NoTitleBar" />
 </resources>

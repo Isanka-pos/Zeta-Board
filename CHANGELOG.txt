@@ -1,3 +1,5 @@
+- FIXED: keyboard background was see-through (apps showed behind the keys) after pressing keys / popups
+- NEW Sticker Maker: tap the sticker icon on the keyboard toolbar, choose Photo (or copy an image and tap Clipboard) and a WhatsApp-ready 512x512 WebP sticker is created, saved in a history grid and sent with one tap (hold to delete). Also available as Share -> Zeta Sticker from the gallery.
 - New Zeta Board logo (app icon, splash, keyboard, notifications)
 - Clipboard Manager inside the app: search, copy, pin, edit, delete, add clips, clear recent, delete all
 - Update check now runs every 45 minutes and notifies you when a new version is ready

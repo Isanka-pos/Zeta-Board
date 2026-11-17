@@ -37,6 +37,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val CLIPBOARD = 4
         const val LEFT = 5
         const val RIGHT = 6
+        const val STICKER = 7
 
         private const val K_CHAR = 0
         private const val K_SHIFT = 1
@@ -126,8 +127,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
     private val rect = RectF()
     private val altRect = RectF()
-    private val toolRects = Array(4) { RectF() }
-    private val toolIcons = intArrayOf(R.drawable.ic_paste, R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_tune)
+    private val toolRects = Array(5) { RectF() }
+    private val toolIcons = intArrayOf(R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_tune)
     private val cache = HashMap<Int, Drawable>()
 
     private var pressed: Key? = null
@@ -417,6 +418,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val t = theme
         val bs = bgScaled
         p.style = Paint.Style.FILL
+        // The shared paint keeps the alpha of whatever was drawn last frame (shadows, popups, pressed
+        // states). A shader is multiplied by that alpha, which made the whole keyboard see-through.
+        p.color = Color.BLACK
+        p.alpha = 255
         if (bs != null) {
             p.shader = null
             c.drawBitmap(bs, 0f, 0f, null)
@@ -510,8 +515,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         c.drawRoundRect(rect, dp(8f), dp(8f), p)
         Logo.draw(c, context, lx, ly, lx + s, ly + s, dp(8f))
 
-        for (i in 0..3) {
-            val right = width - dp(6f) - (3 - i) * dp(44f)
+        for (i in 0..4) {
+            val right = width - dp(6f) - (4 - i) * dp(44f)
             toolRects[i].set(right - dp(44f), 0f, right, h)
         }
         val savedTf = tp.typeface
@@ -539,7 +544,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.letterSpacing = 0f
         tp.typeface = savedTf
 
-        for (i in 0..3) {
+        for (i in 0..4) {
             if (pressedTool == i) {
                 p.color = t.accent
                 p.alpha = 90
@@ -852,17 +857,18 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun toolTap(i: Int) {
         when (i) {
-            0 -> listener?.onAction(CLIPBOARD)
-            1 -> {
+            0 -> listener?.onAction(STICKER)
+            1 -> listener?.onAction(CLIPBOARD)
+            2 -> {
                 val n = (Prefs.getI(context, "theme", 0) + 1) % Themes.all.size
                 Prefs.setI(context, "theme", n)
                 theme = Themes.get(n)
             }
-            2 -> {
+            3 -> {
                 layer = 5
                 rebuild()
             }
-            3 -> listener?.onAction(SETTINGS)
+            4 -> listener?.onAction(SETTINGS)
         }
     }
 

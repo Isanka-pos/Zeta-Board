@@ -3,13 +3,16 @@ package com.zeta.board
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
+import android.view.View
+import java.io.File
 import android.widget.LinearLayout
 
 /**
  * Container used by the IME and by the in-app preview: the normal keyboard plus the clipboard panel.
  * All text goes through [Output], so both places behave the same.
  */
-class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback {
+class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback {
 
     interface Output {
         fun commit(s: String)
@@ -17,21 +20,38 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         fun enter()
         fun cursor(dir: Int)
         fun settings()
+
+        /** Sends a sticker into the current app. Returns false when that app does not accept stickers. */
+        fun sendSticker(f: File): Boolean = false
+
+        /** Fallback: let the user share the sticker with another app. */
+        fun shareSticker(f: File) {}
+
+        /** Opens the photo picker used by the sticker maker. */
+        fun pickPhoto() {}
     }
 
     val kv = KeyboardView(ctx)
     private val vm = ClipViewModel()
     private val panel = ClipPanel(ctx, vm, this)
+    private val stickers = StickerPanel(ctx, this)
     private var panelOpen = false
+    private var stickersOpen = false
     private var typing = false
     private val d = ctx.resources.displayMetrics.density
 
     init {
         orientation = VERTICAL
         kv.listener = this
-        kv.onTheme = { panel.applyTheme(it) }
+        kv.onTheme = {
+            panel.applyTheme(it)
+            stickers.applyTheme(it)
+        }
         panel.applyTheme(kv.theme)
+        stickers.applyTheme(kv.theme)
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(stickers, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        stickers.visibility = GONE
         addView(kv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panel.visibility = GONE
     }
@@ -66,6 +86,109 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         kv.visibility = VISIBLE
     }
 
+    // ---- sticker maker ----
+
+    private val hubListener = object : StickerHub.Listener {
+        override fun onStatus(text: String) {
+            stickers.setStatus(text)
+        }
+
+        override fun onDone(f: File, note: String?) {
+            // if the keyboard is on screen the user sees the sticker right now, otherwise show it next time
+            StickerHub.pendingShow = !(isAttachedToWindow && windowVisibility == View.VISIBLE)
+            if (!stickersOpen) openStickers()
+            stickers.onNew(f, note)
+        }
+
+        override fun onFail(msg: String) {
+            stickers.setStatus(null)
+            stickers.flash(msg)
+        }
+
+        override fun onIdle() {
+            stickers.setStatus(null)
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        StickerHub.listener = hubListener
+    }
+
+    override fun onDetachedFromWindow() {
+        if (StickerHub.listener === hubListener) StickerHub.listener = null
+        super.onDetachedFromWindow()
+    }
+
+    fun openStickers() {
+        if (stickersOpen) return
+        closeClipboard()
+        StickerHub.pendingShow = false
+        stickersOpen = true
+        typing = false
+        val lp = stickers.layoutParams as LayoutParams
+        lp.height = kv.preferredHeight()
+        stickers.layoutParams = lp
+        stickers.visibility = VISIBLE
+        stickers.alpha = 0f
+        stickers.translationY = 24f * d
+        stickers.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        kv.visibility = GONE
+        stickers.open()
+    }
+
+    fun closeStickers() {
+        if (!stickersOpen) return
+        stickersOpen = false
+        stickers.animate().cancel()
+        stickers.close()
+        stickers.visibility = GONE
+        kv.visibility = VISIBLE
+    }
+
+    /** Called every time the keyboard shows up: opens the sticker panel if a photo/sticker is waiting for it. */
+    fun onStartInput() {
+        if (StickerHub.pendingShow) openStickers()
+    }
+
+    override fun onPickPhoto() {
+        StickerHub.pendingShow = true
+        out.pickPhoto()
+    }
+
+    override fun onUseClipboard() {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        var uri: Uri? = null
+        try {
+            val clip = cm.primaryClip
+            if (clip != null) {
+                for (i in 0 until clip.itemCount) {
+                    val u = clip.getItemAt(i).uri ?: continue
+                    val type = context.contentResolver.getType(u) ?: ""
+                    if (type.startsWith("image/")) {
+                        uri = u
+                        break
+                    }
+                }
+            }
+        } catch (e: Exception) {
+        }
+        if (uri == null) {
+            stickers.flash("No copied image found \u2014 copy a photo first")
+            return
+        }
+        StickerHub.submitUri(context, uri)
+    }
+
+    override fun onSend(f: File) {
+        if (out.sendSticker(f)) {
+            stickers.flash("Sticker sent")
+        } else {
+            stickers.flash("This app can't take stickers directly \u2014 choose where to send")
+            out.shareSticker(f)
+        }
+    }
+
     private fun routed(): Boolean = panelOpen && typing
 
     // ---- KeyboardView.Listener ----
@@ -86,6 +209,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.LEFT -> if (!routed()) out.cursor(-1)
             KeyboardView.RIGHT -> if (!routed()) out.cursor(1)
             KeyboardView.CLIPBOARD -> openClipboard()
+            KeyboardView.STICKER -> openStickers()
             KeyboardView.SETTINGS -> out.settings()
         }
     }
@@ -107,7 +231,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     }
 
     override fun onClose() {
-        closeClipboard()
+        if (stickersOpen) closeStickers() else closeClipboard()
     }
 
     override fun onTyping(active: Boolean) {

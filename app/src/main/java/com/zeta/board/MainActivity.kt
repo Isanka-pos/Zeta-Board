@@ -3,6 +3,7 @@ package com.zeta.board
 import android.app.Activity
 import android.Manifest
 import android.content.Intent
+import java.io.File
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.ImageView.ScaleType
@@ -688,6 +689,21 @@ class MainActivity : Activity() {
             }
 
             override fun settings() {}
+
+            override fun pickPhoto() {
+                startActivity(Intent(this@MainActivity, StickerActivity::class.java))
+            }
+
+            override fun shareSticker(f: File) {
+                try {
+                    val send = Intent(Intent.ACTION_SEND)
+                        .setType("image/webp")
+                        .putExtra(Intent.EXTRA_STREAM, StickerSender.uriFor(this@MainActivity, f))
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    startActivity(Intent.createChooser(send, "Send sticker"))
+                } catch (e: Exception) {
+                }
+            }
         })
         kv = host.kv
         kv.theme = Themes.get(Prefs.getI(this, "theme", 0))

@@ -2,11 +2,13 @@ package com.zeta.board
 
 import android.content.ClipboardManager
 import android.content.Intent
+import android.net.Uri
 import android.inputmethodservice.InputMethodService
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import java.io.File
 
 class ZetaIME : InputMethodService() {
 
@@ -53,6 +55,37 @@ class ZetaIME : InputMethodService() {
         override fun settings() {
             startActivity(Intent(this@ZetaIME, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
+
+        override fun sendSticker(f: File): Boolean {
+            val ic = currentInputConnection ?: return false
+            val ei = currentInputEditorInfo ?: return false
+            return try {
+                StickerSender.send(this@ZetaIME, ic, ei, f)
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        override fun shareSticker(f: File) {
+            try {
+                val uri: Uri = StickerSender.uriFor(this@ZetaIME, f)
+                val send = Intent(Intent.ACTION_SEND)
+                    .setType("image/webp")
+                    .putExtra(Intent.EXTRA_STREAM, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val chooser = Intent.createChooser(send, "Send sticker")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                startActivity(chooser)
+            } catch (e: Exception) {
+            }
+        }
+
+        override fun pickPhoto() {
+            startActivity(
+                Intent(this@ZetaIME, StickerActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            )
+        }
     }
 
     override fun onCreate() {
@@ -68,6 +101,7 @@ class ZetaIME : InputMethodService() {
     override fun onDestroy() {
         cm?.removePrimaryClipChangedListener(clipListener)
         host?.closeClipboard()
+        host?.closeStickers()
         super.onDestroy()
     }
 
@@ -93,16 +127,19 @@ class ZetaIME : InputMethodService() {
             (cls == InputType.TYPE_CLASS_NUMBER && v == InputType.TYPE_NUMBER_VARIATION_PASSWORD) ||
             ((info?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         h.closeClipboard()
+        h.closeStickers()
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.kv.reload()
         val layer = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) 1 else 0
         val cap = cls == InputType.TYPE_CLASS_TEXT && (t and InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) != 0
         h.kv.startInput(layer, if (cap) 1 else 0)
+        if (!secure) h.onStartInput()
         captureClip(false)
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         host?.closeClipboard()
+        host?.closeStickers()
         super.onFinishInputView(finishingInput)
     }
 
