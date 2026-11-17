@@ -12,18 +12,25 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import android.os.Handler
+import android.os.Looper
 
 object UpdateScheduler {
-    private const val ID = 4107
+    private const val ID = 4108
+    private const val OLD_ID = 4107 // the old 6-hour job, removed on upgrade
+    const val INTERVAL_MIN = 45L
+    private const val INTERVAL_MS = INTERVAL_MIN * 60L * 1000L
 
-    /** Checks for a new version every ~6 hours (needs network, survives reboot). */
+    /** Checks for a new version every 45 minutes (needs network, survives reboot). */
     fun schedule(ctx: Context) {
         try {
             val js = ctx.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
-            if (js.getPendingJob(ID) != null) return
+            js.cancel(OLD_ID)
+            val existing = js.getPendingJob(ID)
+            if (existing != null && existing.isPeriodic && existing.intervalMillis == INTERVAL_MS) return
             val info = JobInfo.Builder(ID, ComponentName(ctx, UpdateJobService::class.java))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setPeriodic(6L * 60L * 60L * 1000L)
+                .setPeriodic(INTERVAL_MS)
                 .setPersisted(true)
                 .build()
             js.schedule(info)
@@ -32,15 +39,53 @@ object UpdateScheduler {
     }
 }
 
+/** A second 45-minute timer that runs while the keyboard (or the app) process is alive, so checks are not missed. */
+object UpdateWatcher {
+    const val INTERVAL_MS = 45L * 60L * 1000L
+    private const val MIN_GAP_MS = 40L * 60L * 1000L
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var appCtx: Context? = null
+    private var started = false
+
+    private val tick = object : Runnable {
+        override fun run() {
+            val c = appCtx ?: return
+            checkAndNotify(c, false) {}
+            handler.postDelayed(this, INTERVAL_MS)
+        }
+    }
+
+    fun start(ctx: Context) {
+        appCtx = ctx.applicationContext
+        if (started) return
+        started = true
+        handler.postDelayed(tick, INTERVAL_MS)
+    }
+
+    /** Looks for a new version and shows a notification once per version. [done] is always called on the main thread. */
+    fun checkAndNotify(ctx: Context, force: Boolean, done: () -> Unit) {
+        val app = ctx.applicationContext
+        val now = System.currentTimeMillis()
+        val gap = now - Prefs.getL(app, "last_bg_check", 0L)
+        if (!force && gap >= 0L && gap < MIN_GAP_MS) {
+            done()
+            return
+        }
+        Updater.check(app) { info, err ->
+            if (err == null) Prefs.setL(app, "last_bg_check", System.currentTimeMillis())
+            if (info != null && !Updater.dialogOpen && info.code > Prefs.getI(app, "notified_code", 0).toLong()) {
+                Prefs.setI(app, "notified_code", info.code.toInt())
+                UpdateNotifier.show(app, info)
+            }
+            done()
+        }
+    }
+}
+
 class UpdateJobService : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
-        Updater.check(this) { info, _ ->
-            if (info != null && info.code > Prefs.getI(this, "notified_code", 0).toLong()) {
-                Prefs.setI(this, "notified_code", info.code.toInt())
-                UpdateNotifier.show(this, info)
-            }
-            jobFinished(params, false)
-        }
+        UpdateWatcher.checkAndNotify(this, true) { jobFinished(params, false) }
         return true
     }
 

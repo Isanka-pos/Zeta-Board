@@ -12,6 +12,8 @@ import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
@@ -45,6 +47,16 @@ class MainActivity : Activity() {
     private var splashDone = false
     private var lastCheck = 0L
     private lateinit var thumbHint: TextView
+    private lateinit var clipStat: TextView
+
+    // re-checks for updates every 45 minutes while the app is on screen
+    private val ticker = Handler(Looper.getMainLooper())
+    private val tickRun = object : Runnable {
+        override fun run() {
+            if (splashDone && !isFinishing && !isDestroyed && !Updater.dialogOpen) checkUpdate(false)
+            ticker.postDelayed(this, UpdateWatcher.INTERVAL_MS)
+        }
+    }
 
     private val dens: Float by lazy { resources.displayMetrics.density }
     private fun dp(v: Int): Int = (v * dens).toInt()
@@ -88,8 +100,22 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onPause() {
+        ticker.removeCallbacks(tickRun)
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        ticker.removeCallbacksAndMessages(null)
+        Updater.dialog?.dismiss()
+        super.onDestroy()
+    }
+
     override fun onResume() {
         super.onResume()
+        ticker.removeCallbacks(tickRun)
+        ticker.postDelayed(tickRun, UpdateWatcher.INTERVAL_MS)
+        refreshClipStat()
         if (splashDone && !Updater.dialogOpen && System.currentTimeMillis() - lastCheck > 60000L) checkUpdate(false)
         val pend = Updater.pending
         if (pend != null && packageManager.canRequestPackageInstalls()) {
@@ -277,10 +303,37 @@ class MainActivity : Activity() {
         return c
     }
 
+    private fun clipManagerCard(): View {
+        val c = card("Clipboard Manager", "Everything you copy, saved on this phone only")
+        clipStat = tv("Loading...", 13f, Pal.MUTED)
+        clipStat.setPadding(0, dp(12), 0, 0)
+        c.addView(clipStat)
+        val open = pill("Open Clipboard Manager") {
+            startActivity(Intent(this, ClipManagerActivity::class.java))
+        }
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(14)
+        c.addView(open, lp)
+        return c
+    }
+
+    private fun refreshClipStat() {
+        ClipRepo.load("") { pinned, recent ->
+            if (!isFinishing && !isDestroyed) {
+                val total = pinned.size + recent.size
+                if (total == 0) {
+                    clipStat.text = "No clips yet. Copy some text while Zeta Board is your keyboard."
+                } else {
+                    clipStat.text = total.toString() + " saved  \u2022  " + pinned.size + " pinned"
+                }
+            }
+        }
+    }
+
     private fun checkUpdate(manual: Boolean) {
         lastCheck = System.currentTimeMillis()
         Updater.check(this) { info, err ->
-            if (isFinishing) return@check
+            if (isFinishing || isDestroyed) return@check
             if (info != null) {
                 if (!Updater.dialogOpen) UpdateDialog.show(this, info)
             } else if (manual) {
@@ -401,8 +454,9 @@ class MainActivity : Activity() {
         col.addView(shapeCard())
         col.addView(rgbCard())
         col.addView(photoCard())
+        col.addView(clipManagerCard())
         col.addView(settingsCard())
-        val foot = tv("Zeta Board v1.0  \u2022  Made by Isanka Malith", 12f, Pal.MUTED)
+        val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Malith", 12f, Pal.MUTED)
         foot.gravity = Gravity.CENTER
         foot.setPadding(0, dp(24), 0, 0)
         col.addView(foot, LinearLayout.LayoutParams(MATCH, WRAP))

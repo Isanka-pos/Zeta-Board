@@ -13,7 +13,7 @@ class ZetaIME : InputMethodService() {
     private var host: KeyboardHost? = null
     private var secure = false
     private var cm: ClipboardManager? = null
-    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { captureClip() }
+    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { captureClip(true) }
 
     private val output = object : KeyboardHost.Output {
         override fun commit(s: String) {
@@ -55,10 +55,12 @@ class ZetaIME : InputMethodService() {
         cm = m
         m.addPrimaryClipChangedListener(clipListener)
         UpdateScheduler.schedule(this)
+        UpdateWatcher.start(this)
     }
 
     override fun onDestroy() {
         cm?.removePrimaryClipChangedListener(clipListener)
+        host?.closeClipboard()
         super.onDestroy()
     }
 
@@ -89,7 +91,7 @@ class ZetaIME : InputMethodService() {
         val layer = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) 1 else 0
         val cap = cls == InputType.TYPE_CLASS_TEXT && (t and InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) != 0
         h.kv.startInput(layer, if (cap) 1 else 0)
-        captureClip()
+        captureClip(false)
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -97,8 +99,12 @@ class ZetaIME : InputMethodService() {
         super.onFinishInputView(finishingInput)
     }
 
-    /** Stores the current clip locally. Skips sensitive clips, password fields and incognito fields. */
-    private fun captureClip() {
+    /**
+     * Stores the current clip locally. Skips sensitive clips, password fields and incognito fields.
+     * [fromCopy] is true when the user just copied something; when the keyboard only opens, a clip that was
+     * already handled (for example one the user deleted from history) is not added back.
+     */
+    private fun captureClip(fromCopy: Boolean) {
         if (secure || !Prefs.getB(this, "clip_on", true)) return
         try {
             val clip = cm?.primaryClip ?: return
@@ -108,6 +114,9 @@ class ZetaIME : InputMethodService() {
             if (desc.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true) return
             val text = clip.getItemAt(0).coerceToText(this)?.toString() ?: return
             if (ClipGuard.looksSensitive(text)) return
+            val h = text.hashCode()
+            if (!fromCopy && Prefs.getI(this, "clip_hash", 0) == h) return
+            Prefs.setI(this, "clip_hash", h)
             ClipRepo.add(text, Prefs.getI(this, "clip_max", 100))
         } catch (e: Exception) {
         }

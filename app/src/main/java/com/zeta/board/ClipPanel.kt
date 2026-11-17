@@ -461,7 +461,8 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
         c.addView(meta)
 
         val tx = TextView(context)
-        tx.text = item.text
+        // very long clips are cut for display only (keeps the keyboard smooth); pasting always uses the full text
+        tx.text = if (expanded.contains(item.id) || item.text.length <= 600) item.text else item.text.take(600) + "\u2026"
         tx.textSize = 14f
         tx.setTextColor(th.text)
         tx.setLineSpacing(0f, 1.1f)

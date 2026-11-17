@@ -1,4 +1,6 @@
-- New Clipboard Manager: history, pinned clips, search, edit, copy, delete
-- Update notifications: you now get a notification when a new version is ready
-- New app logo
-- 5 key shapes, gallery photo background, RGB lighting
+- New Zeta Board logo (app icon, splash, keyboard, notifications)
+- Clipboard Manager inside the app: search, copy, pin, edit, delete, add clips, clear recent, delete all
+- Update check now runs every 45 minutes and notifies you when a new version is ready
+- Fixed: update check crash on Android 8 / 8.1
+- Fixed: deleted clips no longer come back when the keyboard opens
+- Fixed: update dialog crash after rotating the phone, safer update download

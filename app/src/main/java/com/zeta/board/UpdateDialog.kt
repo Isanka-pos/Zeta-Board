@@ -202,8 +202,13 @@ object UpdateDialog {
         }
 
         dialog.setContentView(root)
-        dialog.setOnDismissListener { Updater.dialogOpen = false }
+        dialog.setOnDismissListener {
+            task?.cancelled = true
+            Updater.dialogOpen = false
+            Updater.dialog = null
+        }
         Updater.dialogOpen = true
+        Updater.dialog = dialog
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         dialog.show()
         dialog.window?.setLayout((a.resources.displayMetrics.widthPixels * 0.92f).toInt(), WRAP)

@@ -20,25 +20,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
-      - name: Fetch app logo
-        run: |
-          set +e
-          curl -fsSL --max-time 60 "https://files.catbox.moe/rvqwvj.jpg" -o /tmp/logo.jpg
-          if [ "$(head -c 2 /tmp/logo.jpg | od -An -tx1 | tr -d ' ')" = "ffd8" ]; then
-            pip install --quiet pillow
-            python3 - <<'PY'
-          from PIL import Image
-          im = Image.open("/tmp/logo.jpg").convert("RGB")
-          s = min(im.size)
-          l, t = (im.width - s) // 2, (im.height - s) // 2
-          im = im.crop((l, t, l + s, t + s)).resize((512, 512), Image.LANCZOS)
-          im.save("app/src/main/res/drawable-nodpi/app_logo.jpg", quality=92)
-          print("logo updated")
-          PY
-          else
-            echo "logo download failed, keeping bundled logo"
-          fi
-          exit 0
       - name: Build APK
         run: gradle assembleDebug --no-daemon --stacktrace -PverCode=${{ github.run_number }} -PgithubRepo=${{ github.repository }}
       - name: Publish release (used by in-app updater)

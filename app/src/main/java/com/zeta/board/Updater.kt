@@ -1,6 +1,7 @@
 package com.zeta.board
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -8,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -28,11 +30,15 @@ object Updater {
 
     private val main = Handler(Looper.getMainLooper())
 
-    fun currentCode(c: Context): Long = c.packageManager.getPackageInfo(c.packageName, 0).longVersionCode
+    // PackageInfoCompat works on Android 8+ (longVersionCode alone crashes on API 26-27)
+    fun currentCode(c: Context): Long = PackageInfoCompat.getLongVersionCode(c.packageManager.getPackageInfo(c.packageName, 0))
 
     fun currentName(c: Context): String = c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: "1.0"
 
     var dialogOpen = false
+
+    // the update dialog currently on screen (dismissed when the activity is destroyed)
+    var dialog: Dialog? = null
 
     private fun get(url: String, accept: String?): String {
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -104,6 +110,13 @@ object Updater {
         }.start()
     }
 
+    /** The downloaded file must really be a Zeta Board APK, otherwise the installer would just fail. */
+    private fun isValidApk(c: Context, f: File): Boolean {
+        if (!f.exists() || f.length() < 100000L) return false
+        val pi = c.packageManager.getPackageArchiveInfo(f.path, 0) ?: return false
+        return pi.packageName == c.packageName
+    }
+
     /** onProgress(percent, downloadedBytes, totalBytes); onDone(file or null on failure/cancel). Both run on the main thread. */
     fun download(
         c: Context,
@@ -112,7 +125,8 @@ object Updater {
         onDone: (File?) -> Unit
     ): Task {
         val task = Task()
-        val dir = File(c.cacheDir, "updates")
+        val app = c.applicationContext
+        val dir = File(app.cacheDir, "updates")
         Thread {
             val out = File(dir, "ZetaBoard.apk")
             try {
@@ -122,6 +136,12 @@ object Updater {
                 conn.connectTimeout = 15000
                 conn.readTimeout = 15000
                 conn.instanceFollowRedirects = true
+                conn.setRequestProperty("User-Agent", "ZetaBoard")
+                val http = conn.responseCode
+                if (http != 200) {
+                    conn.disconnect()
+                    throw IllegalStateException("HTTP $http")
+                }
                 val total = conn.contentLengthLong
                 var got = 0L
                 var last = 0L
@@ -145,6 +165,8 @@ object Updater {
                     }
                 }
                 conn.disconnect()
+                if (total > 0 && got != total) throw IllegalStateException("incomplete download")
+                if (!isValidApk(app, out)) throw IllegalStateException("invalid apk")
                 val g = got
                 main.post {
                     onProgress(100, g, total)
