@@ -16,6 +16,7 @@ import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
+import android.widget.Toast
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -55,6 +56,7 @@ class MainActivity : Activity() {
             v.translationY = dp(30).toFloat()
         }
         splash.onDone = {
+            checkUpdate(false)
             splash.animate().alpha(0f).setDuration(400).withEndAction { root.removeView(splash) }.start()
             for (i in 0 until col.childCount) {
                 col.getChildAt(i).animate()
@@ -67,6 +69,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        val pend = Updater.pending
+        if (pend != null && packageManager.canRequestPackageInstalls()) {
+            Updater.pending = null
+            Updater.install(this, pend)
+        }
         if (steps.size == 2) {
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
             val enabled = imm.enabledInputMethodList.any { it.packageName == packageName }
@@ -74,6 +81,14 @@ class MainActivity : Activity() {
                 ?.startsWith(packageName) == true
             steps[0].setDone(enabled)
             steps[1].setDone(sel)
+        }
+    }
+
+    private fun checkUpdate(manual: Boolean) {
+        Updater.check(this) { info, failed ->
+            if (isFinishing) return@check
+            if (info != null) UpdateDialog.show(this, info)
+            else if (manual) Toast.makeText(this, if (failed) "Could not check for updates" else "You are on the latest version", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -356,6 +371,18 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
         c.addView(sb, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        val vrow = LinearLayout(this)
+        vrow.orientation = LinearLayout.HORIZONTAL
+        vrow.gravity = Gravity.CENTER_VERTICAL
+        vrow.setPadding(0, dp(18), 0, 0)
+        val vcol = LinearLayout(this)
+        vcol.orientation = LinearLayout.VERTICAL
+        vcol.addView(tv("Updates", 15f, Color.WHITE))
+        vcol.addView(tv("Version " + Updater.currentName(this), 12f, Pal.MUTED))
+        vrow.addView(vcol, LinearLayout.LayoutParams(0, WRAP, 1f))
+        vrow.addView(pill("Check") { checkUpdate(true) })
+        c.addView(vrow)
         return c
     }
 }
