@@ -32,30 +32,75 @@ object Updater {
 
     fun currentName(c: Context): String = c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: "1.0"
 
-    /** onResult(info, failed): info != null when a newer version exists. */
-    fun check(c: Context, onResult: (Info?, Boolean) -> Unit) {
+    var dialogOpen = false
+
+    private fun get(url: String, accept: String?): String {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        conn.useCaches = false
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("Cache-Control", "no-cache")
+        conn.setRequestProperty("User-Agent", "ZetaBoard")
+        if (accept != null) conn.setRequestProperty("Accept", accept)
+        val code = conn.responseCode
+        if (code != 200) {
+            conn.disconnect()
+            throw IllegalStateException("HTTP $code")
+        }
+        val text = conn.inputStream.bufferedReader().use { it.readText() }
+        conn.disconnect()
+        return text
+    }
+
+    private fun fromJson(text: String): Info {
+        val j = JSONObject(text)
+        return Info(j.getLong("versionCode"), j.optString("versionName", ""), j.optString("notes", ""), j.getString("apkUrl"))
+    }
+
+    private fun fromApi(text: String): Info {
+        val j = JSONObject(text)
+        val tag = j.getString("tag_name")
+        val code = tag.removePrefix("v").toLongOrNull() ?: throw IllegalStateException("bad tag $tag")
+        val assets = j.getJSONArray("assets")
+        var apk = ""
+        for (i in 0 until assets.length()) {
+            val a = assets.getJSONObject(i)
+            if (a.getString("name").endsWith(".apk")) apk = a.getString("browser_download_url")
+        }
+        if (apk.isEmpty()) throw IllegalStateException("no apk in release")
+        return Info(code, "1.0.$code", j.optString("body", ""), apk)
+    }
+
+    /** onResult(info, error): info != null when a newer version exists; error != null when the check failed. */
+    fun check(c: Context, onResult: (Info?, String?) -> Unit) {
         val app = c.applicationContext
         Thread {
             var info: Info? = null
-            var failed = false
+            var err: String? = null
             try {
-                if (BuildConfig.UPDATE_URL.isEmpty()) throw IllegalStateException("no update url")
-                val conn = URL(BuildConfig.UPDATE_URL).openConnection() as HttpURLConnection
-                conn.connectTimeout = 10000
-                conn.readTimeout = 10000
-                conn.useCaches = false
-                conn.setRequestProperty("Cache-Control", "no-cache")
-                val text = conn.inputStream.bufferedReader().use { it.readText() }
-                conn.disconnect()
-                val j = JSONObject(text)
-                val code = j.getLong("versionCode")
-                if (code > currentCode(app)) {
-                    info = Info(code, j.optString("versionName", code.toString()), j.optString("notes", ""), j.getString("apkUrl"))
+                val repo = BuildConfig.REPO
+                if (repo.isEmpty()) throw IllegalStateException("this build has no repo set - build it with GitHub Actions")
+                var latest: Info? = null
+                var e1 = ""
+                try {
+                    latest = fromJson(get("https://github.com/$repo/releases/latest/download/update.json", null))
+                } catch (e: Exception) {
+                    e1 = "update.json: " + (e.message ?: e.javaClass.simpleName)
                 }
+                if (latest == null) {
+                    try {
+                        latest = fromApi(get("https://api.github.com/repos/$repo/releases/latest", "application/vnd.github+json"))
+                    } catch (e: Exception) {
+                        throw IllegalStateException(e1 + " / api: " + (e.message ?: e.javaClass.simpleName))
+                    }
+                }
+                val l: Info = latest!!
+                if (l.code > currentCode(app)) info = Info(l.code, l.name.ifBlank { "1.0." + l.code }, l.notes, l.apkUrl)
             } catch (e: Exception) {
-                failed = true
+                err = e.message ?: e.javaClass.simpleName
             }
-            main.post { onResult(info, failed) }
+            main.post { onResult(info, err) }
         }.start()
     }
 

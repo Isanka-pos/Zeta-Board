@@ -21,7 +21,7 @@ jobs:
         with:
           gradle-version: 8.7
       - name: Build APK
-        run: gradle assembleDebug --no-daemon --stacktrace -PverCode=${{ github.run_number }}
+        run: gradle assembleDebug --no-daemon --stacktrace -PverCode=${{ github.run_number }} -PgithubRepo=${{ github.repository }}
       - name: Publish release (used by in-app updater)
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,5 +1,3 @@
-- 5 key shapes: Rounded, Pill, Square, Cut, Outline
-- Use any gallery photo as your keyboard background (with dim control)
-- RGB lighting: animated Wave and Border glow with speed control
+- Update check is now more reliable (checks again every time you open the app)
+- 5 key shapes, gallery photo background, RGB lighting
 - New professional startup animation
-- In-app updates

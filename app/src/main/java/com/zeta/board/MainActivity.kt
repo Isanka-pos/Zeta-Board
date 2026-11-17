@@ -37,6 +37,8 @@ class MainActivity : Activity() {
     private val chips = ArrayList<ThemeChip>()
     private val shapeChips = ArrayList<ShapeChip>()
     private lateinit var thumb: ImageView
+    private var splashDone = false
+    private var lastCheck = 0L
     private lateinit var thumbHint: TextView
 
     private val dens: Float by lazy { resources.displayMetrics.density }
@@ -60,6 +62,7 @@ class MainActivity : Activity() {
             v.translationY = dp(30).toFloat()
         }
         splash.onDone = {
+            splashDone = true
             checkUpdate(false)
             splash.animate().alpha(0f).scaleX(1.06f).scaleY(1.06f).setDuration(480).withEndAction { root.removeView(splash) }.start()
             for (i in 0 until col.childCount) {
@@ -73,6 +76,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (splashDone && !Updater.dialogOpen && System.currentTimeMillis() - lastCheck > 60000L) checkUpdate(false)
         val pend = Updater.pending
         if (pend != null && packageManager.canRequestPackageInstalls()) {
             Updater.pending = null
@@ -260,10 +264,15 @@ class MainActivity : Activity() {
     }
 
     private fun checkUpdate(manual: Boolean) {
-        Updater.check(this) { info, failed ->
+        lastCheck = System.currentTimeMillis()
+        Updater.check(this) { info, err ->
             if (isFinishing) return@check
-            if (info != null) UpdateDialog.show(this, info)
-            else if (manual) Toast.makeText(this, if (failed) "Could not check for updates" else "You are on the latest version", Toast.LENGTH_SHORT).show()
+            if (info != null) {
+                if (!Updater.dialogOpen) UpdateDialog.show(this, info)
+            } else if (manual) {
+                val msg = if (err != null) "Update check failed: $err" else "You are on the latest version"
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            }
         }
     }
 

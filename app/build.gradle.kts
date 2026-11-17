@@ -5,9 +5,7 @@ plugins {
 
 // Set by GitHub Actions: every build gets a higher version than the previous one
 val verCode: Int = (project.findProperty("verCode") as String?)?.toIntOrNull() ?: 1
-val repo: String = System.getenv("GITHUB_REPOSITORY") ?: ""
-val updateUrl: String =
-    if (repo.isEmpty()) "" else "https://github.com/$repo/releases/latest/download/update.json"
+val repo: String = (project.findProperty("githubRepo") as String?) ?: System.getenv("GITHUB_REPOSITORY") ?: ""
 
 android {
     namespace = "com.zeta.board"
@@ -19,7 +17,7 @@ android {
         targetSdk = 34
         versionCode = verCode
         versionName = "1.0.$verCode"
-        buildConfigField("String", "UPDATE_URL", "\"$updateUrl\"")
+        buildConfigField("String", "REPO", "\"$repo\"")
     }
 
     buildFeatures { buildConfig = true }
