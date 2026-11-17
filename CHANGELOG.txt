@@ -22,3 +22,10 @@
 - Removed "Zeta Bold" (star-wrapping) preset
 - New TEXT STYLE panel (A icon on the keyboard toolbar, or the Text style card in the app): Bold, Bold Italic, Sans Italic, Sans Bold Italic, Script, Monospace, Circled, Squared, Small Caps, Canadian, Flags - typed letters convert live; key font can be switched from the same panel
 - Fixed: toolbar title "ZETA BOARD" was cut off / overlapped the clipboard icon (now fits, fixed font)
+
+ZETA QUICK TEXT
+- Added a local SQLite-backed Quick Text shortcut manager with unique shortcut names.
+- Added create, edit, delete, search, categories, favorites, and usage-based ordering.
+- Added a Quick Text keyboard toolbar panel with one-tap insertion through the existing keyboard output path.
+- Added JSON import/export and local-only shortcut storage.
+- Disabled Quick Text access in password and no-personalized-learning input fields.

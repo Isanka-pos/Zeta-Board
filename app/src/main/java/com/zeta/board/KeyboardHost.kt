@@ -3,6 +3,7 @@ package com.zeta.board
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.view.View
 import java.io.File
@@ -35,12 +36,15 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private val vm = ClipViewModel()
     private val panel = ClipPanel(ctx, vm, this)
     private val stickers = StickerPanel(ctx, this)
+    private val quickText = QuickTextPanel(ctx, { item -> out.commit(item.message); closeQuickText() }, { ctx.startActivity(Intent(ctx, QuickTextActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }, { closeQuickText() })
+    private var quickTextOpen = false
+    var quickTextAllowed = true
     private var panelOpen = false
     private var stickersOpen = false
     private var typing = false
     /** Tells the keyboard service when a private panel (clipboard / stickers) is open, so its window can block screenshots. */
     var onSecure: ((Boolean) -> Unit)? = null
-    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen) }
+    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen || quickTextOpen) }
     private val d = ctx.resources.displayMetrics.density
 
     init {
@@ -55,6 +59,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(stickers, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         stickers.visibility = GONE
+        addView(quickText, LayoutParams(LayoutParams.MATCH_PARENT, (220 * d).toInt()))
+        quickText.visibility = GONE
         addView(kv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panel.visibility = GONE
     }
@@ -68,6 +74,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openClipboard() {
         if (panelOpen) return
+        closeQuickText()
         panelOpen = true
         typing = false
         applyHeights()
@@ -89,6 +96,21 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         panel.visibility = GONE
         kv.visibility = VISIBLE
         syncSecure()
+    }
+
+    fun openQuickText() {
+        if (quickTextOpen || !quickTextAllowed) return
+        closeClipboard(); closeStickers()
+        quickTextOpen = true; typing = false
+        quickText.visibility = VISIBLE; quickText.alpha = 0f; quickText.translationY = 18f * d
+        quickText.animate().alpha(1f).translationY(0f).setDuration(180).start()
+        kv.visibility = GONE; quickText.open(); syncSecure()
+    }
+
+    fun closeQuickText() {
+        if (!quickTextOpen) return
+        quickTextOpen = false; quickText.animate().cancel(); quickText.visibility = GONE
+        kv.visibility = VISIBLE; syncSecure()
     }
 
     // ---- sticker maker ----
@@ -127,7 +149,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openStickers() {
         if (stickersOpen) return
-        closeClipboard()
+        closeClipboard(); closeQuickText()
         StickerHub.pendingShow = false
         stickersOpen = true
         typing = false
@@ -217,6 +239,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.RIGHT -> if (!routed()) out.cursor(1)
             KeyboardView.CLIPBOARD -> openClipboard()
             KeyboardView.STICKER -> openStickers()
+            KeyboardView.QUICK_TEXT -> openQuickText()
             KeyboardView.SETTINGS -> out.settings()
         }
     }
@@ -238,7 +261,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     }
 
     override fun onClose() {
-        if (stickersOpen) closeStickers() else closeClipboard()
+        if (quickTextOpen) closeQuickText() else if (stickersOpen) closeStickers() else closeClipboard()
     }
 
     override fun onTyping(active: Boolean) {

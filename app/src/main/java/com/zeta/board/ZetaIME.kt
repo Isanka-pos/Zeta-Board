@@ -91,6 +91,7 @@ class ZetaIME : InputMethodService() {
     override fun onCreate() {
         super.onCreate()
         ClipRepo.init(this)
+        QuickTextRepo.init(this)
         val m = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         cm = m
         m.addPrimaryClipChangedListener(clipListener)
@@ -102,6 +103,7 @@ class ZetaIME : InputMethodService() {
         cm?.removePrimaryClipChangedListener(clipListener)
         host?.closeClipboard()
         host?.closeStickers()
+        host?.closeQuickText()
         super.onDestroy()
     }
 
@@ -129,6 +131,8 @@ class ZetaIME : InputMethodService() {
             ((info?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         h.closeClipboard()
         h.closeStickers()
+        h.closeQuickText()
+        h.quickTextAllowed = !secure
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.kv.reload()
         val layer = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) 1 else 0
@@ -142,6 +146,7 @@ class ZetaIME : InputMethodService() {
     override fun onFinishInputView(finishingInput: Boolean) {
         host?.closeClipboard()
         host?.closeStickers()
+        host?.closeQuickText()
         super.onFinishInputView(finishingInput)
     }
 
