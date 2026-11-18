@@ -24,3 +24,4 @@
 - Removed "Zeta Bold" (star-wrapping) preset
 - New TEXT STYLE panel (A icon on the keyboard toolbar, or the Text style card in the app): Bold, Bold Italic, Sans Italic, Sans Bold Italic, Script, Monospace, Circled, Squared, Small Caps, Canadian, Flags - typed letters convert live; key font can be switched from the same panel
 - Fixed: toolbar title "ZETA BOARD" was cut off / overlapped the clipboard icon (now fits, fixed font)
+- Zeta Translate: translate panel on the toolbar, local history, MyMemory or custom LibreTranslate provider

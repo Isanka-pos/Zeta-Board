@@ -39,6 +39,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val RIGHT = 6
         const val STICKER = 7
         const val QUICK = 8
+        const val TRANSLATE = 9
 
         private const val K_CHAR = 0
         private const val K_SHIFT = 1
@@ -136,11 +137,19 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private val rect = RectF()
     private val altRect = RectF()
     private val toolRects = Array(6) { RectF() }
-    private val toolIcons = intArrayOf(R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_quick, R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_tune)
+    private val toolIcons = intArrayOf(R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_quick, R.drawable.ic_translate, R.drawable.ic_palette, R.drawable.ic_menu)
     private val cache = HashMap<Int, Drawable>()
 
     private var pressed: Key? = null
     private var pressedTool = -1
+
+    // tool list: the icons that do not fit on the toolbar open from the last (menu) icon
+    private var menuOpen = false
+    private var pressedMenu = -1
+    private val menuIcons = intArrayOf(R.drawable.ic_font, R.drawable.ic_tune)
+    private val menuLabels = arrayOf("Text style", "Settings")
+    private val menuRects = Array(2) { RectF() }
+    private val menuBox = RectF()
     private var activeId = -1
     private var downX = 0f
     private var curX = 0f
@@ -300,6 +309,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
 
     fun startInput(l: Int, s: Int) {
+        menuOpen = false
         layer = l
         shift = s
         afterSentence = false
@@ -495,6 +505,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             c.drawText("No recent emoji yet", width / 2f, baseline(ty), tp)
         }
         drawPopups(c)
+        if (menuOpen) drawMenu(c)
         if ((rgb and 2) != 0) drawBorder(c)
         if (rgb != 0 && isShown) postInvalidateOnAnimation()
     }
@@ -614,6 +625,58 @@ class KeyboardView(ctx: Context) : View(ctx) {
             c.drawText("${emojiPage + 1}/$emojiPages", toolRects[0].left - dp(6f), baseline(h / 2f), tp)
         }
         tp.textAlign = Paint.Align.CENTER
+    }
+
+    private fun drawMenu(c: Canvas) {
+        val t = theme
+        val rowH = dp(46f)
+        val w = dp(176f)
+        val right = width - dp(8f)
+        val top = toolH
+        menuBox.set(right - w, top, right, top + rowH * menuRects.size + dp(8f))
+        p.style = Paint.Style.FILL
+        p.shader = null
+        p.color = Color.argb(90, 0, 0, 0)
+        rect.set(menuBox.left, menuBox.top + dp(3f), menuBox.right, menuBox.bottom + dp(3f))
+        c.drawRoundRect(rect, dp(16f), dp(16f), p)
+        p.color = blend(t.bgTop, t.key, 0.7f)
+        p.alpha = 255
+        c.drawRoundRect(menuBox, dp(16f), dp(16f), p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = dp(1f)
+        p.color = withA(t.text, 50)
+        c.drawRoundRect(menuBox, dp(16f), dp(16f), p)
+        p.style = Paint.Style.FILL
+        val saved = tp.textAlign
+        tp.textAlign = Paint.Align.LEFT
+        tp.textSize = dp(14f)
+        for (i in menuRects.indices) {
+            val y = menuBox.top + dp(4f) + i * rowH
+            menuRects[i].set(menuBox.left, y, menuBox.right, y + rowH)
+            if (pressedMenu == i) {
+                p.color = t.accent
+                p.alpha = 80
+                rect.set(menuBox.left + dp(4f), y + dp(2f), menuBox.right - dp(4f), y + rowH - dp(2f))
+                c.drawRoundRect(rect, dp(12f), dp(12f), p)
+                p.alpha = 255
+            }
+            rect.set(menuBox.left + dp(8f), y, menuBox.left + dp(48f), y + rowH)
+            icon(c, menuIcons[i], rect, t.text, dp(20f))
+            tp.color = t.text
+            tp.alpha = 255
+            c.drawText(menuLabels[i], menuBox.left + dp(52f), baseline(y + rowH / 2f), tp)
+        }
+        tp.textAlign = saved
+    }
+
+    private fun menuTap(i: Int) {
+        when (i) {
+            0 -> {
+                layer = 5
+                rebuild()
+            }
+            1 -> listener?.onAction(SETTINGS)
+        }
     }
 
     private fun drawKey(c: Canvas, k: Key) {
@@ -808,6 +871,14 @@ class KeyboardView(ctx: Context) : View(ctx) {
         altSel = -1
         swiping = false
         downInGrid = layer == 4 && y >= toolH && rows.size > 1 && y < rows[rows.size - 1].first().r.top
+        if (menuOpen) {
+            pressed = null
+            pressedTool = -1
+            pressedMenu = menuRects.indexOfFirst { it.contains(x, y) }
+            if (pressedMenu >= 0) feedback() else menuOpen = false
+            invalidate()
+            return
+        }
         if (y < toolH) {
             pressed = null
             pressedTool = toolRects.indexOfFirst { it.contains(x, y) }
@@ -838,7 +909,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun move(x: Float, y: Float) {
         curX = x
-        if (pressedTool >= 0) return
+        if (pressedTool >= 0 || pressedMenu >= 0) return
         if (layer == 4 && altList.isEmpty() && downInGrid) {
             val pk = pressed
             if ((pk == null || pk.kind == K_CHAR) && abs(x - downX) > dp(14f)) {
@@ -877,13 +948,18 @@ class KeyboardView(ctx: Context) : View(ctx) {
         handler.removeCallbacks(repeat)
         val k = pressed
         val tool = pressedTool
+        val pm = pressedMenu
+        pressedMenu = -1
         val wasSwipe = swiping
         pressed = null
         pressedTool = -1
         activeId = -1
         swiping = false
         if (doCommit) {
-            if (tool >= 0) {
+            if (pm >= 0) {
+                menuOpen = false
+                menuTap(pm)
+            } else if (tool >= 0) {
                 toolTap(tool)
             } else if (altList.isNotEmpty()) {
                 val s = altList.getOrNull(altSel)
@@ -916,17 +992,15 @@ class KeyboardView(ctx: Context) : View(ctx) {
             0 -> listener?.onAction(STICKER)
             1 -> listener?.onAction(CLIPBOARD)
             2 -> listener?.onAction(QUICK)
-            3 -> {
+            3 -> listener?.onAction(TRANSLATE)
+            4 -> {
                 val n = (Prefs.getI(context, "theme", 0) + 1) % Themes.all.size
                 Prefs.setI(context, "theme", n)
                 theme = Themes.get(n)
             }
-            4 -> {
-                layer = 5
-                rebuild()
-            }
-            5 -> listener?.onAction(SETTINGS)
+            5 -> menuOpen = !menuOpen
         }
+        invalidate()
     }
 
     private fun commitKey(k: Key) {

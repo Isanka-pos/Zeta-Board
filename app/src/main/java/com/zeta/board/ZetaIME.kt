@@ -120,6 +120,18 @@ class ZetaIME : InputMethodService() {
 
         override fun quickAllowed(): Boolean = !secure
 
+        override fun translateAllowed(): Boolean = !secure
+
+        override fun insertTranslation(text: String): Boolean {
+            if (secure || text.isEmpty()) return false
+            val ic = currentInputConnection ?: return false
+            return try {
+                ic.commitText(text, 1)
+            } catch (e: Exception) {
+                false
+            }
+        }
+
         override fun openQuickManager() {
             try {
                 startActivity(Intent(this@ZetaIME, QuickTextActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -151,6 +163,8 @@ class ZetaIME : InputMethodService() {
         host?.closeClipboard()
         host?.closeStickers()
         host?.closeQuick()
+        host?.closeTranslate()
+        Translator.cancel()
         super.onDestroy()
     }
 
@@ -179,6 +193,7 @@ class ZetaIME : InputMethodService() {
         h.closeClipboard()
         h.closeStickers()
         h.closeQuick()
+        h.closeTranslate()
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.kv.reload()
         val layer = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) 1 else 0
@@ -193,6 +208,7 @@ class ZetaIME : InputMethodService() {
         host?.closeClipboard()
         host?.closeStickers()
         host?.closeQuick()
+        host?.closeTranslate()
         super.onFinishInputView(finishingInput)
     }
 

@@ -568,6 +568,7 @@ class MainActivity : Activity() {
         MenuEntry("typing", "Typing & Fonts", "Text style, key font, feel", R.drawable.ic_font),
         MenuEntry("clipboard", "Clipboard", "History and manager", R.drawable.ic_paste),
         MenuEntry("quicktext", "Quick Text", "Shortcuts that insert messages", R.drawable.ic_quick),
+        MenuEntry("translate", "Zeta Translate", "Provider, history, privacy", R.drawable.ic_translate),
         MenuEntry("sticker", "Sticker Maker", "Photo to WhatsApp sticker", R.drawable.ic_sticker),
         MenuEntry("updates", "Updates", "Version and what's new", R.drawable.ic_download),
         MenuEntry("about", "About", "Owner and contact", R.drawable.ic_info)
@@ -828,6 +829,7 @@ class MainActivity : Activity() {
         put(clipManagerCard(), "clipboard")
         put(clipSettingsCard(), "clipboard")
         put(quickTextCard(), "quicktext")
+        put(translateCard(), "translate")
         put(updatesCard(), "updates")
         put(aboutCard(), "about")
         val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Dev", 12f, Pal.MUTED)
@@ -1025,6 +1027,51 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
         c.addView(sb, LinearLayout.LayoutParams(MATCH, WRAP))
+        return c
+    }
+
+    private fun settingField(hint: String, key: String, secret: Boolean): EditText {
+        val e = EditText(this)
+        e.hint = hint
+        e.setText(Prefs.getS(this, key, ""))
+        e.setTextColor(Color.WHITE)
+        e.setHintTextColor(Pal.MUTED)
+        e.textSize = 14f
+        e.setSingleLine(true)
+        e.inputType = InputType.TYPE_CLASS_TEXT or (if (secret) InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_TEXT_VARIATION_URI)
+        e.setPadding(dp(14), dp(10), dp(14), dp(10))
+        e.background = roundBg(Pal.BG, 14, Pal.STROKE, 1)
+        e.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) { Prefs.setS(this@MainActivity, key, s?.toString()?.trim() ?: "") }
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        })
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(8)
+        e.layoutParams = lp
+        return e
+    }
+
+    private fun translateCard(): View {
+        val c = card("Zeta Translate", "Tap the translate icon on the keyboard toolbar")
+        c.addView(tv("Provider", 15f, Color.WHITE).also { it.setPadding(0, dp(12), 0, dp(6)) })
+        val cur = if (Prefs.getS(this, "tr_provider", "mymemory") == "libre") 1 else 0
+        c.addView(segment(listOf("MyMemory (free)", "Custom server"), cur) {
+            Prefs.setS(this, "tr_provider", if (it == 1) "libre" else "mymemory")
+        })
+        c.addView(tv("MyMemory needs no key (about 5,000 characters/day, 450 per request). Add an email below to raise the daily limit. A custom server must be LibreTranslate-compatible and use HTTPS; text is sent only to the server you choose.", 12f, Pal.MUTED).also { it.setPadding(0, dp(8), 0, 0) })
+        c.addView(settingField("MyMemory email (optional)", "tr_email", false))
+        c.addView(settingField("Custom endpoint, e.g. https://libretranslate.example.com", "tr_url", false))
+        c.addView(settingField("Custom API key (optional)", "tr_key", true))
+        c.addView(switchRow("Save translation history", "Stored on this phone only, never uploaded", "tr_hist", true))
+        val wipe = pill("Delete translation history") {
+            TrHistory.clear(this)
+            Toast.makeText(this, "Translation history deleted", Toast.LENGTH_SHORT).show()
+        }
+        wipe.background = roundBg(Pal.BG, 30, Pal.STROKE, 1)
+        val wlp = LinearLayout.LayoutParams(MATCH, WRAP)
+        wlp.topMargin = dp(10)
+        c.addView(wipe, wlp)
         return c
     }
 

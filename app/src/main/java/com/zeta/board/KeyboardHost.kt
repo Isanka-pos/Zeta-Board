@@ -12,7 +12,7 @@ import android.widget.LinearLayout
  * Container used by the IME and by the in-app preview: the normal keyboard plus the clipboard panel.
  * All text goes through [Output], so both places behave the same.
  */
-class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback {
+class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, TranslatePanel.Callback {
 
     interface Output {
         fun commit(s: String)
@@ -41,6 +41,12 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
         /** Opens the Quick Text Manager screen. */
         fun openQuickManager() {}
+
+        /** Zeta Translate: inserts translated text into the focused field. False when there is no field or it is private. */
+        fun insertTranslation(text: String): Boolean = false
+
+        /** True when Translate may be used in the current field (false for password / private fields). */
+        fun translateAllowed(): Boolean = true
     }
 
     val kv = KeyboardView(ctx)
@@ -48,13 +54,15 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private val panel = ClipPanel(ctx, vm, this)
     private val stickers = StickerPanel(ctx, this)
     private val quick = QuickPanel(ctx, this)
+    private val translate = TranslatePanel(ctx, this)
     private var panelOpen = false
     private var stickersOpen = false
     private var quickOpen = false
+    private var translateOpen = false
     private var typing = false
     /** Tells the keyboard service when a private panel (clipboard / stickers) is open, so its window can block screenshots. */
     var onSecure: ((Boolean) -> Unit)? = null
-    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen || quickOpen) }
+    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen || quickOpen || translateOpen) }
     private val d = ctx.resources.displayMetrics.density
 
     init {
@@ -64,21 +72,25 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             panel.applyTheme(it)
             stickers.applyTheme(it)
             quick.applyTheme(it)
+            translate.applyTheme(it)
         }
         panel.applyTheme(kv.theme)
         stickers.applyTheme(kv.theme)
         quick.applyTheme(kv.theme)
+        translate.applyTheme(kv.theme)
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(stickers, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         stickers.visibility = GONE
         addView(quick, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         quick.visibility = GONE
+        addView(translate, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        translate.visibility = GONE
         addView(kv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panel.visibility = GONE
     }
 
     private fun applyHeights() {
-        val target: View = if (quickOpen) quick else panel
+        val target: View = if (translateOpen) translate else if (quickOpen) quick else panel
         val lp = target.layoutParams as LayoutParams
         lp.height = if (typing) (196 * d).toInt() else kv.preferredHeight()
         target.layoutParams = lp
@@ -88,6 +100,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     fun openClipboard() {
         if (panelOpen) return
         closeQuick()
+        closeTranslate()
         panelOpen = true
         typing = false
         applyHeights()
@@ -111,12 +124,55 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         syncSecure()
     }
 
+    // ---- zeta translate ----
+
+    fun openTranslate() {
+        if (translateOpen) return
+        closeClipboard()
+        closeStickers()
+        closeQuick()
+        translateOpen = true
+        typing = false
+        applyHeights()
+        translate.visibility = VISIBLE
+        translate.alpha = 0f
+        translate.translationY = 24f * d
+        translate.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        kv.visibility = GONE
+        translate.open(!out.translateAllowed())
+        syncSecure()
+    }
+
+    fun closeTranslate() {
+        if (!translateOpen) return
+        translateOpen = false
+        typing = false
+        translate.animate().cancel()
+        translate.close()
+        translate.visibility = GONE
+        kv.visibility = VISIBLE
+        syncSecure()
+    }
+
+    override fun onTranslateInsert(text: String): Boolean = out.insertTranslation(text)
+
+    override fun onTranslateClose() {
+        closeTranslate()
+    }
+
+    override fun onTranslateTyping(active: Boolean) {
+        typing = active
+        if (active) kv.startInput(0, 0)
+        applyHeights()
+    }
+
     // ---- quick text ----
 
     fun openQuick() {
         if (quickOpen) return
         closeClipboard()
         closeStickers()
+        closeTranslate()
         quickOpen = true
         typing = false
         applyHeights()
@@ -199,6 +255,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         if (stickersOpen) return
         closeClipboard()
         closeQuick()
+        closeTranslate()
         StickerHub.pendingShow = false
         stickersOpen = true
         typing = false
@@ -267,13 +324,13 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         }
     }
 
-    private fun routed(): Boolean = (panelOpen || quickOpen) && typing
+    private fun routed(): Boolean = (panelOpen || quickOpen || translateOpen) && typing
 
     // ---- KeyboardView.Listener ----
 
     override fun onText(s: String) {
         if (routed()) {
-            if (quickOpen) quick.insert(s) else panel.insert(s)
+            if (translateOpen) translate.insert(s) else if (quickOpen) quick.insert(s) else panel.insert(s)
             return
         }
         // Quick Text: a typed delimiter right after a shortcut expands it (the IME decides if it is allowed)
@@ -284,13 +341,14 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     override fun onAction(a: Int) {
         when (a) {
-            KeyboardView.DEL -> if (routed()) (if (quickOpen) quick.backspace() else panel.backspace()) else out.del()
-            KeyboardView.ENTER -> if (routed()) (if (quickOpen) quick.enter() else panel.enter()) else out.enter()
+            KeyboardView.DEL -> if (routed()) (if (translateOpen) translate.backspace() else if (quickOpen) quick.backspace() else panel.backspace()) else out.del()
+            KeyboardView.ENTER -> if (routed()) (if (translateOpen) translate.enter() else if (quickOpen) quick.enter() else panel.enter()) else out.enter()
             KeyboardView.LEFT -> if (!routed()) out.cursor(-1)
             KeyboardView.RIGHT -> if (!routed()) out.cursor(1)
             KeyboardView.CLIPBOARD -> openClipboard()
             KeyboardView.STICKER -> openStickers()
             KeyboardView.QUICK -> openQuick()
+            KeyboardView.TRANSLATE -> openTranslate()
             KeyboardView.SETTINGS -> out.settings()
         }
     }

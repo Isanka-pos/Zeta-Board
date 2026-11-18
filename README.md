@@ -30,3 +30,12 @@
 - Android 14+: when a screenshot is taken, a warning banner slides in from the top and a heads-up notification is shown (the banner always works; the notification needs the notification permission). This cannot be switched off.
 - Android 13 and older have no screenshot detection, so every screen and dialog uses FLAG_SECURE and screenshots / screen recording are blocked there.
 - Android never reports a screenshot of a FLAG_SECURE window, so blocking and the warning cannot run together.
+
+## Zeta Translate
+
+Tap the translate icon on the keyboard toolbar. Type or paste text, pick languages, tap Translate, then Insert translation.
+
+Provider setup (Zeta Board app -> Zeta Translate):
+- Default: MyMemory (https://mymemory.translated.net). Free, no API key. About 5,000 characters/day per IP, 450 characters per request. Optionally enter an email to raise the daily limit.
+- Custom: any LibreTranslate-compatible server (self-hosting is free; hosted ones may need a paid key). Enter the HTTPS endpoint (without /translate) and an optional API key.
+- Text is sent only to the provider you selected. History is stored locally and can be turned off or deleted. Password and private fields are never translated.
