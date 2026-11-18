@@ -18,7 +18,12 @@ import java.net.URL
 
 object Updater {
 
-    class Info(val code: Long, val name: String, val notes: String, val apkUrl: String)
+    // Your own server (see the zeta-board-server project). Set this once you've deployed it
+    // to Vercel, e.g. "https://zeta-board-server.vercel.app". Leave blank to skip it and use
+    // GitHub releases only.
+    private const val SERVER_BASE = ""
+
+    class Info(val code: Long, val name: String, val notes: String, val apkUrl: String, val mandatory: Boolean = false)
 
     class Task {
         @Volatile
@@ -61,7 +66,10 @@ object Updater {
 
     private fun fromJson(text: String): Info {
         val j = JSONObject(text)
-        return Info(j.getLong("versionCode"), j.optString("versionName", ""), j.optString("notes", ""), j.getString("apkUrl"))
+        return Info(
+            j.getLong("versionCode"), j.optString("versionName", ""), j.optString("notes", ""),
+            j.getString("apkUrl"), j.optBoolean("mandatory", false)
+        )
     }
 
     private fun fromApi(text: String): Info {
@@ -78,8 +86,15 @@ object Updater {
         return Info(code, "1.0.$code", j.optString("body", ""), apk)
     }
 
-    /** Reads the newest published release (update.json first, GitHub API as a fallback). Throws when it cannot be read. */
+    /** Reads the newest published release (own server first, then update.json, then the GitHub API). Throws when none works. */
     private fun fetchLatest(): Info {
+        if (SERVER_BASE.isNotEmpty()) {
+            try {
+                return fromJson(get("$SERVER_BASE/api/update", "application/json"))
+            } catch (e: Exception) {
+                // server down/unreachable - fall through to GitHub below
+            }
+        }
         val repo = BuildConfig.REPO
         if (repo.isEmpty()) throw IllegalStateException("this build has no repo set - build it with GitHub Actions")
         var latest: Info? = null
@@ -107,7 +122,7 @@ object Updater {
             var err: String? = null
             try {
                 val l = fetchLatest()
-                if (l.code > currentCode(app)) info = Info(l.code, l.name.ifBlank { "1.0." + l.code }, l.notes, l.apkUrl)
+                if (l.code > currentCode(app)) info = Info(l.code, l.name.ifBlank { "1.0." + l.code }, l.notes, l.apkUrl, l.mandatory)
             } catch (e: Exception) {
                 err = e.message ?: e.javaClass.simpleName
             }

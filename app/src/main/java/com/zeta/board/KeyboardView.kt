@@ -38,7 +38,6 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val LEFT = 5
         const val RIGHT = 6
         const val STICKER = 7
-        const val QUICK_TEXT = 8
 
         private const val K_CHAR = 0
         private const val K_SHIFT = 1
@@ -128,8 +127,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
     private val rect = RectF()
     private val altRect = RectF()
-    private val toolRects = Array(6) { RectF() }
-    private val toolIcons = intArrayOf(R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_tune, R.drawable.ic_quick_text)
+    private val toolRects = Array(5) { RectF() }
+    private val toolIcons = intArrayOf(R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_tune)
     private val cache = HashMap<Int, Drawable>()
 
     private var pressed: Key? = null
@@ -516,8 +515,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         c.drawRoundRect(rect, dp(8f), dp(8f), p)
         Logo.draw(c, context, lx, ly, lx + s, ly + s, dp(8f))
 
-        for (i in 0..5) {
-            val right = width - dp(6f) - (5 - i) * dp(44f)
+        for (i in 0..4) {
+            val right = width - dp(6f) - (4 - i) * dp(44f)
             toolRects[i].set(right - dp(44f), 0f, right, h)
         }
         val savedTf = tp.typeface
@@ -545,7 +544,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.letterSpacing = 0f
         tp.typeface = savedTf
 
-        for (i in 0..5) {
+        for (i in 0..4) {
             if (pressedTool == i) {
                 p.color = t.accent
                 p.alpha = 90
@@ -870,7 +869,6 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 rebuild()
             }
             4 -> listener?.onAction(SETTINGS)
-            5 -> listener?.onAction(QUICK_TEXT)
         }
     }
 

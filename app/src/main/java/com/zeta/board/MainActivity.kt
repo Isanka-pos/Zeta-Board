@@ -541,7 +541,6 @@ class MainActivity : Activity() {
         MenuEntry("look", "Appearance", "Themes, shapes, RGB, photo", R.drawable.ic_palette),
         MenuEntry("typing", "Typing & Fonts", "Text style, key font, feel", R.drawable.ic_font),
         MenuEntry("clipboard", "Clipboard", "History and manager", R.drawable.ic_paste),
-        MenuEntry("quicktext", "Quick Text", "Saved messages and shortcuts", R.drawable.ic_quick_text),
         MenuEntry("sticker", "Sticker Maker", "Photo to WhatsApp sticker", R.drawable.ic_sticker),
         MenuEntry("updates", "Updates", "Version and what's new", R.drawable.ic_download),
         MenuEntry("about", "About", "Owner and contact", R.drawable.ic_info)
@@ -551,10 +550,6 @@ class MainActivity : Activity() {
         sideMenu.close()
         if (id == "sticker") {
             startActivity(Intent(this, StickerMakerActivity::class.java))
-            return
-        }
-        if (id == "quicktext") {
-            startActivity(Intent(this, QuickTextActivity::class.java))
             return
         }
         showGroup(id)
