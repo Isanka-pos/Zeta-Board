@@ -972,6 +972,7 @@ class MainActivity : Activity() {
         c.addView(switchRow("Key sound", "Click sound while typing", "sound", false))
         c.addView(switchRow("Key preview", "Pop-up bubble above pressed key", "preview", true))
         c.addView(switchRow("Number row", "Always show 1-0 on top", "numrow", true))
+        c.addView(switchRow("Apple emoji style", "iPhone-style emoji in the keyboard emoji panel", "apple_emoji", true))
 
         val label = tv("Keyboard height  " + Prefs.getI(this, "height", 100) + "%", 15f, Color.WHITE)
         val lp = LinearLayout.LayoutParams(MATCH, WRAP)

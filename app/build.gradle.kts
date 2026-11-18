@@ -25,6 +25,9 @@ android {
 
     buildFeatures { buildConfig = true }
 
+    // keep the emoji font uncompressed (PNG data does not compress; lets it be read quickly)
+    androidResources { noCompress += "ttf" }
+
     // Same key on every build, so new APKs can update the installed app
     signingConfigs {
         create("zeta") {

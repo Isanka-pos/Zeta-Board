@@ -123,8 +123,15 @@ class KeyboardView(ctx: Context) : View(ctx) {
     // emoji are drawn with their own paint so a custom key font never changes how they look
     private val ep = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
+        typeface = AppleEmoji.typeface(ctx) ?: Typeface.DEFAULT
+    }
+    // phone's own emoji font: used for any emoji the Apple font cannot draw as one glyph (never broken pieces)
+    private val epSys = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
         typeface = Typeface.DEFAULT
     }
+    private val pickCache = HashMap<String, Paint?>()
+    private var fontReq = false
     private val rect = RectF()
     private val altRect = RectF()
     private val toolRects = Array(5) { RectF() }
@@ -150,7 +157,50 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     // ---------- emoji helpers ----------
 
-    private fun supported(e: String): Boolean = ep.hasGlyph(e)
+    /** Switches the emoji paint to the Apple font (or back to the system one) and rebuilds the emoji lists. */
+    private fun applyEmojiFont() {
+        val want = AppleEmoji.typeface(context)
+        val cur = ep.typeface
+        if (want != null && cur !== want) {
+            ep.typeface = want
+            pickCache.clear(); emojiCache.clear()
+        } else if (want == null && cur !== Typeface.DEFAULT) {
+            ep.typeface = Typeface.DEFAULT
+            pickCache.clear(); emojiCache.clear()
+        }
+        if (AppleEmoji.enabled(context) && !AppleEmoji.ready && !fontReq) {
+            fontReq = true
+            AppleEmoji.load(context) {
+                fontReq = false
+                applyEmojiFont()
+                if (layer == 4) rebuild() // emoji panel is open: rebuild its pages with the new font
+                invalidate()
+            }
+        }
+    }
+
+    /** True when [p] draws [e] as a single emoji (a broken sequence would come out several glyphs wide). */
+    private fun oneGlyph(p: Paint, e: String): Boolean {
+        val old = p.textSize
+        p.textSize = 100f
+        val w = p.measureText(e)
+        p.textSize = old
+        return w in 1f..135f
+    }
+
+    /** Which paint draws [e] cleanly: Apple font first, phone font as fallback, null when nothing can. */
+    private fun pick(e: String): Paint? {
+        if (pickCache.containsKey(e)) return pickCache[e]
+        val r: Paint? = when {
+            ep.hasGlyph(e) && oneGlyph(ep, e) -> ep
+            epSys.hasGlyph(e) -> epSys
+            else -> null
+        }
+        pickCache[e] = r
+        return r
+    }
+
+    private fun supported(e: String): Boolean = pick(e) != null
 
     private fun emojiList(i: Int): List<String> {
         if (i == Emojis.RECENT) return Emojis.recents(context).filter { supported(it) }
@@ -208,6 +258,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
 
     init {
+        applyEmojiFont()
         reload()
     }
 
@@ -215,6 +266,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     fun reload() {
         val c = context
+        applyEmojiFont()
         numRow = Prefs.getB(c, "numrow", true)
         heightPct = Prefs.getI(c, "height", 100)
         haptic = Prefs.getB(c, "haptic", true)
@@ -412,7 +464,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun baseline(cy: Float): Float = cy - (tp.descent() + tp.ascent()) / 2f
 
-    private fun baselineE(cy: Float): Float = cy - (ep.descent() + ep.ascent()) / 2f
+    private fun baselineE(cy: Float, pp: Paint = ep): Float = cy - (pp.descent() + pp.ascent()) / 2f
 
     override fun onDraw(c: Canvas) {
         val t = theme
@@ -608,9 +660,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
         val rh = k.r.height()
         if (layer == 4 && (k.kind == K_CHAR || k.kind == K_CAT)) {
-            ep.textSize = if (k.kind == K_CAT) minOf(rh * 0.5f, k.r.width() * 0.72f) else minOf(rh * 0.62f, k.r.width() * 0.64f)
-            ep.alpha = if (k.kind == K_CAT && !catSel) 175 else 255
-            c.drawText(k.label, k.r.centerX(), baselineE(k.r.centerY()), ep)
+            val pe = pick(k.label) ?: ep
+            pe.textSize = if (k.kind == K_CAT) minOf(rh * 0.5f, k.r.width() * 0.72f) else minOf(rh * 0.62f, k.r.width() * 0.64f)
+            pe.alpha = if (k.kind == K_CAT && !catSel) 175 else 255
+            c.drawText(k.label, k.r.centerX(), baselineE(k.r.centerY(), pe), pe)
             return
         }
         if (k.kind == K_STYLE) {
@@ -676,9 +729,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
                     c.drawRoundRect(rect, dp(9f), dp(9f), p)
                 }
                 if (layer == 4) {
-                    ep.textSize = dp(24f)
-                    ep.alpha = 255
-                    c.drawText(s, l + i * iw + iw / 2f, baselineE(top + ih / 2f), ep)
+                    val pe = pick(s) ?: ep
+                    pe.textSize = dp(24f)
+                    pe.alpha = 255
+                    c.drawText(s, l + i * iw + iw / 2f, baselineE(top + ih / 2f, pe), pe)
                 } else {
                     tp.color = if (i == altSel) t.accentText else t.text
                     tp.textSize = dp(22f)
@@ -774,7 +828,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         } else if (k.alts.isNotEmpty()) {
             handler.postDelayed(longPress, 380)
         } else if (layer == 4 && k.kind == K_CHAR) {
-            if (k.altStr == null) k.altStr = Emojis.toneVariants(k.label, ep)
+            if (k.altStr == null) k.altStr = Emojis.toneVariants(k.label) { supported(it) }
             if (k.altStr!!.isNotEmpty()) handler.postDelayed(longPress, 380)
         }
         invalidate()

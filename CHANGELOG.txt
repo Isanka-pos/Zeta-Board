@@ -1,3 +1,4 @@
+- NEW: Apple-style emoji in the keyboard emoji panel (iPhone look). Flags, families, skin tones, keycaps and hearts draw as one clean emoji; anything the Apple set cannot draw falls back to your phone's emoji, never broken pieces. Turn it on/off in Typing & Fonts -> Apple emoji style
 - NEW: Screenshot warning: on Android 14+ a warning banner slides in from the top and a notification appears the moment a screenshot is taken in the app. On older Android versions screenshots are blocked instead
 - IMPROVED: Update alert: as soon as a new version is found, a heads-up notification drops down from the top of the screen with sound and vibration. Checks now run every 15 minutes and every time the keyboard opens
 - NEW: Menu button (three lines, top right of the app). Opens the category menu: Home, Setup, Appearance, Typing & Fonts, Clipboard, Sticker Maker, Updates, About. Each category shows only its own cards

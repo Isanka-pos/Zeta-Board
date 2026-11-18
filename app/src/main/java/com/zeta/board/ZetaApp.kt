@@ -6,5 +6,6 @@ class ZetaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ScreenGuard.install(this)
+        if (AppleEmoji.enabled(this)) AppleEmoji.load(this) {}
     }
 }

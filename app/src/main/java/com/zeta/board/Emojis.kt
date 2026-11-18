@@ -104,16 +104,16 @@ object Emojis {
     private fun stripVs(e: String) = e.replace("\uFE0F", "")
 
     /** Skin-tone versions of [e] that this device can really draw as ONE glyph. Empty when [e] has no tones. */
-    fun toneVariants(e: String, paint: Paint): List<String> {
+    fun toneVariants(e: String, ok: (String) -> Boolean): List<String> {
         if (e.length > 4 || e.contains('\u200D')) return emptyList() // only simple one-person emoji
         val base = stripVs(e)
         val first = base + String(Character.toChars(tones[0]))
-        if (!paint.hasGlyph(first)) return emptyList()
+        if (!ok(first)) return emptyList()
         val out = ArrayList<String>()
         out.add(e)
         for (t in tones) {
             val v = base + String(Character.toChars(t))
-            if (paint.hasGlyph(v)) out.add(v)
+            if (ok(v)) out.add(v)
         }
         return if (out.size > 1) out else emptyList()
     }
