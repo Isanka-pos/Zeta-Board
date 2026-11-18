@@ -102,13 +102,6 @@ object UpdateWatcher {
                     UpdateNotifier.show(app, info)
                 }
             }
-            // Same cycle, separate feed: any new announcement from the server's /api/messages.
-            Messages.checkUnseen(app) { msg ->
-                if (msg != null) {
-                    MessageNotifier.show(app, msg)
-                    Messages.markSeen(app, msg.id)
-                }
-            }
             done()
         }
     }
@@ -131,7 +124,6 @@ object UpdateStore {
         Prefs.setS(app, "avail_name", i.name)
         Prefs.setS(app, "avail_notes", i.notes)
         Prefs.setS(app, "avail_url", i.apkUrl)
-        Prefs.setB(app, "avail_mandatory", i.mandatory)
     }
 
     /** The update that is waiting to be installed, or null when the app is already up to date. */
@@ -141,10 +133,7 @@ object UpdateStore {
         if (code <= Updater.currentCode(app)) return null
         val url = Prefs.getS(app, "avail_url", "")
         if (url.isEmpty()) return null
-        return Updater.Info(
-            code, Prefs.getS(app, "avail_name", "1.0.$code"), Prefs.getS(app, "avail_notes", ""), url,
-            Prefs.getB(app, "avail_mandatory", false)
-        )
+        return Updater.Info(code, Prefs.getS(app, "avail_name", "1.0.$code"), Prefs.getS(app, "avail_notes", ""), url)
     }
 
     /** A successful check found nothing newer, so an update that was announced earlier has been withdrawn. */
