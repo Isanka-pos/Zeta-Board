@@ -18,10 +18,8 @@ import java.net.URL
 
 object Updater {
 
-    // Your own server (see the zeta-board-server project). Set this once you've deployed it
-    // to Vercel, e.g. "https://zeta-board-server.vercel.app". Leave blank to skip it and use
-    // GitHub releases only.
-    private const val SERVER_BASE = ""
+    // Your own server (see the zeta-board-server project), deployed on Vercel.
+    private const val SERVER_BASE = "https://zeta-board.vercel.app"
 
     class Info(val code: Long, val name: String, val notes: String, val apkUrl: String, val mandatory: Boolean = false)
 

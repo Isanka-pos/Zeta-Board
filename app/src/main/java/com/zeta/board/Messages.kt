@@ -23,8 +23,8 @@ class AppMessage(val id: String, val title: String, val body: String, val type: 
  */
 object Messages {
 
-    // Keep in sync with Updater.SERVER_BASE. Left blank, this feature does nothing.
-    private const val SERVER_BASE = ""
+    // Keep in sync with Updater.SERVER_BASE.
+    private const val SERVER_BASE = "https://zeta-board.vercel.app"
 
     private val main = Handler(Looper.getMainLooper())
 
