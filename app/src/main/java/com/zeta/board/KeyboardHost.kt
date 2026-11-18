@@ -12,7 +12,7 @@ import android.widget.LinearLayout
  * Container used by the IME and by the in-app preview: the normal keyboard plus the clipboard panel.
  * All text goes through [Output], so both places behave the same.
  */
-class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback {
+class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback {
 
     interface Output {
         fun commit(s: String)
@@ -29,18 +29,32 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
         /** Opens the photo picker used by the sticker maker. */
         fun pickPhoto() {}
+
+        /** Quick Text: replaces a just-typed shortcut before the cursor with its message. True when it did. */
+        fun expand(delim: String): Boolean = false
+
+        /** Quick Text: inserts a saved message into the focused field. False when there is no field or it is private. */
+        fun insertQuick(text: String): Boolean = false
+
+        /** True when Quick Text may be used in the current field (false for password / private fields). */
+        fun quickAllowed(): Boolean = true
+
+        /** Opens the Quick Text Manager screen. */
+        fun openQuickManager() {}
     }
 
     val kv = KeyboardView(ctx)
     private val vm = ClipViewModel()
     private val panel = ClipPanel(ctx, vm, this)
     private val stickers = StickerPanel(ctx, this)
+    private val quick = QuickPanel(ctx, this)
     private var panelOpen = false
     private var stickersOpen = false
+    private var quickOpen = false
     private var typing = false
     /** Tells the keyboard service when a private panel (clipboard / stickers) is open, so its window can block screenshots. */
     var onSecure: ((Boolean) -> Unit)? = null
-    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen) }
+    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen || quickOpen) }
     private val d = ctx.resources.displayMetrics.density
 
     init {
@@ -49,25 +63,31 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         kv.onTheme = {
             panel.applyTheme(it)
             stickers.applyTheme(it)
+            quick.applyTheme(it)
         }
         panel.applyTheme(kv.theme)
         stickers.applyTheme(kv.theme)
+        quick.applyTheme(kv.theme)
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(stickers, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         stickers.visibility = GONE
+        addView(quick, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        quick.visibility = GONE
         addView(kv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panel.visibility = GONE
     }
 
     private fun applyHeights() {
-        val lp = panel.layoutParams as LayoutParams
+        val target: View = if (quickOpen) quick else panel
+        val lp = target.layoutParams as LayoutParams
         lp.height = if (typing) (196 * d).toInt() else kv.preferredHeight()
-        panel.layoutParams = lp
+        target.layoutParams = lp
         kv.visibility = if (typing) VISIBLE else GONE
     }
 
     fun openClipboard() {
         if (panelOpen) return
+        closeQuick()
         panelOpen = true
         typing = false
         applyHeights()
@@ -89,6 +109,56 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         panel.visibility = GONE
         kv.visibility = VISIBLE
         syncSecure()
+    }
+
+    // ---- quick text ----
+
+    fun openQuick() {
+        if (quickOpen) return
+        closeClipboard()
+        closeStickers()
+        quickOpen = true
+        typing = false
+        applyHeights()
+        quick.visibility = VISIBLE
+        quick.alpha = 0f
+        quick.translationY = 24f * d
+        quick.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        kv.visibility = GONE
+        quick.open(!out.quickAllowed())
+        syncSecure()
+    }
+
+    fun closeQuick() {
+        if (!quickOpen) return
+        quickOpen = false
+        typing = false
+        quick.animate().cancel()
+        quick.close()
+        quick.visibility = GONE
+        kv.visibility = VISIBLE
+        syncSecure()
+    }
+
+    override fun onQuickPick(text: String): Boolean {
+        if (!out.insertQuick(text)) return false
+        closeQuick()
+        return true
+    }
+
+    override fun onQuickClose() {
+        closeQuick()
+    }
+
+    override fun onQuickManage() {
+        out.openQuickManager()
+        closeQuick()
+    }
+
+    override fun onQuickTyping(active: Boolean) {
+        typing = active
+        if (active) kv.startInput(0, 0)
+        applyHeights()
     }
 
     // ---- sticker maker ----
@@ -128,6 +198,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     fun openStickers() {
         if (stickersOpen) return
         closeClipboard()
+        closeQuick()
         StickerHub.pendingShow = false
         stickersOpen = true
         typing = false
@@ -196,27 +267,30 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         }
     }
 
-    private fun routed(): Boolean = panelOpen && typing
+    private fun routed(): Boolean = (panelOpen || quickOpen) && typing
 
     // ---- KeyboardView.Listener ----
 
     override fun onText(s: String) {
         if (routed()) {
-            panel.insert(s)
+            if (quickOpen) quick.insert(s) else panel.insert(s)
             return
         }
+        // Quick Text: a typed delimiter right after a shortcut expands it (the IME decides if it is allowed)
+        if (s.length == 1 && QuickText.isDelimiter(s[0]) && out.expand(s)) return
         val st = Prefs.getI(context, "textstyle", 0)
         out.commit(if (st != 0) TextStyles.convert(st, s) else s)
     }
 
     override fun onAction(a: Int) {
         when (a) {
-            KeyboardView.DEL -> if (routed()) panel.backspace() else out.del()
-            KeyboardView.ENTER -> if (routed()) panel.enter() else out.enter()
+            KeyboardView.DEL -> if (routed()) (if (quickOpen) quick.backspace() else panel.backspace()) else out.del()
+            KeyboardView.ENTER -> if (routed()) (if (quickOpen) quick.enter() else panel.enter()) else out.enter()
             KeyboardView.LEFT -> if (!routed()) out.cursor(-1)
             KeyboardView.RIGHT -> if (!routed()) out.cursor(1)
             KeyboardView.CLIPBOARD -> openClipboard()
             KeyboardView.STICKER -> openStickers()
+            KeyboardView.QUICK -> openQuick()
             KeyboardView.SETTINGS -> out.settings()
         }
     }

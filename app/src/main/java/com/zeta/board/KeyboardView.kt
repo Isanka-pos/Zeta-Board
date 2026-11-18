@@ -38,6 +38,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val LEFT = 5
         const val RIGHT = 6
         const val STICKER = 7
+        const val QUICK = 8
 
         private const val K_CHAR = 0
         private const val K_SHIFT = 1
@@ -134,8 +135,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private var fontReq = false
     private val rect = RectF()
     private val altRect = RectF()
-    private val toolRects = Array(5) { RectF() }
-    private val toolIcons = intArrayOf(R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_tune)
+    private val toolRects = Array(6) { RectF() }
+    private val toolIcons = intArrayOf(R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_quick, R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_tune)
     private val cache = HashMap<Int, Drawable>()
 
     private var pressed: Key? = null
@@ -567,9 +568,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
         c.drawRoundRect(rect, dp(8f), dp(8f), p)
         Logo.draw(c, context, lx, ly, lx + s, ly + s, dp(8f))
 
-        for (i in 0..4) {
-            val right = width - dp(6f) - (4 - i) * dp(44f)
-            toolRects[i].set(right - dp(44f), 0f, right, h)
+        val tw = dp(40f)
+        for (i in toolRects.indices) {
+            val right = width - dp(6f) - (toolRects.size - 1 - i) * tw
+            toolRects[i].set(right - tw, 0f, right, h)
         }
         val savedTf = tp.typeface
         tp.typeface = brandTf
@@ -596,7 +598,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.letterSpacing = 0f
         tp.typeface = savedTf
 
-        for (i in 0..4) {
+        for (i in toolRects.indices) {
             if (pressedTool == i) {
                 p.color = t.accent
                 p.alpha = 90
@@ -913,16 +915,17 @@ class KeyboardView(ctx: Context) : View(ctx) {
         when (i) {
             0 -> listener?.onAction(STICKER)
             1 -> listener?.onAction(CLIPBOARD)
-            2 -> {
+            2 -> listener?.onAction(QUICK)
+            3 -> {
                 val n = (Prefs.getI(context, "theme", 0) + 1) % Themes.all.size
                 Prefs.setI(context, "theme", n)
                 theme = Themes.get(n)
             }
-            3 -> {
+            4 -> {
                 layer = 5
                 rebuild()
             }
-            4 -> listener?.onAction(SETTINGS)
+            5 -> listener?.onAction(SETTINGS)
         }
     }
 

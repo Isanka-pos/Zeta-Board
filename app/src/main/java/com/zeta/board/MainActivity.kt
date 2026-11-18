@@ -51,6 +51,7 @@ class MainActivity : Activity() {
     private var lastCheck = 0L
     private lateinit var thumbHint: TextView
     private lateinit var clipStat: TextView
+    private lateinit var quickStat: TextView
     private lateinit var sideMenu: SideMenu
     private lateinit var scrollRoot: ScrollView
     private lateinit var headerSub: TextView
@@ -79,6 +80,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         UpdateScheduler.schedule(this)
         ClipRepo.init(this)
+        QuickRepo.init(this)
         val root = FrameLayout(this)
         root.setBackgroundColor(Pal.BG)
         val home = buildHome()
@@ -174,6 +176,7 @@ class MainActivity : Activity() {
         ticker.removeCallbacks(tickRun)
         ticker.postDelayed(tickRun, UpdateWatcher.INTERVAL_MS)
         refreshClipStat()
+        refreshQuickStat()
         refreshUpdateUi()
         fontPaint?.invoke()
         textPaint?.invoke()
@@ -499,6 +502,29 @@ class MainActivity : Activity() {
         return c
     }
 
+    private fun quickTextCard(): View {
+        val c = card("Quick Text", "Save messages as shortcuts, insert them anywhere")
+        quickStat = tv("Loading...", 13f, Pal.MUTED)
+        quickStat.setPadding(0, dp(12), 0, 0)
+        c.addView(quickStat)
+        val open = pill("Open Quick Text Manager") {
+            startActivity(Intent(this, QuickTextActivity::class.java))
+        }
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(14)
+        c.addView(open, lp)
+        c.addView(switchRow("Auto-expand shortcuts", "Type a shortcut like .welcome and press space. Off in password fields.", "quick_auto", true))
+        return c
+    }
+
+    private fun refreshQuickStat() {
+        QuickRepo.load("", false, 1) { r ->
+            if (!isFinishing && !isDestroyed) {
+                quickStat.text = if (r.total == 0) "No shortcuts yet. Tap the button below to create your first one." else r.total.toString() + " saved  \u2022  " + r.enabled + " on"
+            }
+        }
+    }
+
     private fun refreshClipStat() {
         ClipRepo.load("") { pinned, recent ->
             if (!isFinishing && !isDestroyed) {
@@ -541,6 +567,7 @@ class MainActivity : Activity() {
         MenuEntry("look", "Appearance", "Themes, shapes, RGB, photo", R.drawable.ic_palette),
         MenuEntry("typing", "Typing & Fonts", "Text style, key font, feel", R.drawable.ic_font),
         MenuEntry("clipboard", "Clipboard", "History and manager", R.drawable.ic_paste),
+        MenuEntry("quicktext", "Quick Text", "Shortcuts that insert messages", R.drawable.ic_quick),
         MenuEntry("sticker", "Sticker Maker", "Photo to WhatsApp sticker", R.drawable.ic_sticker),
         MenuEntry("updates", "Updates", "Version and what's new", R.drawable.ic_download),
         MenuEntry("about", "About", "Owner and contact", R.drawable.ic_info)
@@ -800,6 +827,7 @@ class MainActivity : Activity() {
         put(typingCard(), "typing")
         put(clipManagerCard(), "clipboard")
         put(clipSettingsCard(), "clipboard")
+        put(quickTextCard(), "quicktext")
         put(updatesCard(), "updates")
         put(aboutCard(), "about")
         val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Dev", 12f, Pal.MUTED)

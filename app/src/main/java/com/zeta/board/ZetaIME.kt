@@ -14,6 +14,7 @@ class ZetaIME : InputMethodService() {
 
     private var host: KeyboardHost? = null
     private var secure = false
+    private var expanding = false
     private var cm: ClipboardManager? = null
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { captureClip(true) }
 
@@ -80,6 +81,52 @@ class ZetaIME : InputMethodService() {
             }
         }
 
+        override fun expand(delim: String): Boolean {
+            if (secure || expanding) return false
+            if (!Prefs.getB(this@ZetaIME, "quick_auto", true)) return false
+            if (!QuickRepo.hasEnabled()) return false
+            val ic = currentInputConnection ?: return false
+            expanding = true
+            try {
+                if (!ic.getSelectedText(0).isNullOrEmpty()) return false
+                val before = ic.getTextBeforeCursor(QuickText.MAX_SC + 2, 0) ?: return false
+                val tok = QuickText.tokenAtEnd(before) ?: return false
+                val msg = QuickRepo.lookup(tok) ?: return false
+                ic.beginBatchEdit()
+                try {
+                    if (!ic.deleteSurroundingText(tok.length, 0)) return false
+                    ic.commitText(msg, 1)
+                    ic.commitText(delim, 1)
+                } finally {
+                    ic.endBatchEdit()
+                }
+                return true
+            } catch (e: Exception) {
+                return false
+            } finally {
+                expanding = false
+            }
+        }
+
+        override fun insertQuick(text: String): Boolean {
+            if (secure) return false
+            val ic = currentInputConnection ?: return false
+            return try {
+                ic.commitText(text, 1)
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        override fun quickAllowed(): Boolean = !secure
+
+        override fun openQuickManager() {
+            try {
+                startActivity(Intent(this@ZetaIME, QuickTextActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {
+            }
+        }
+
         override fun pickPhoto() {
             startActivity(
                 Intent(this@ZetaIME, StickerActivity::class.java)
@@ -91,6 +138,7 @@ class ZetaIME : InputMethodService() {
     override fun onCreate() {
         super.onCreate()
         ClipRepo.init(this)
+        QuickRepo.init(this)
         val m = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         cm = m
         m.addPrimaryClipChangedListener(clipListener)
@@ -102,6 +150,7 @@ class ZetaIME : InputMethodService() {
         cm?.removePrimaryClipChangedListener(clipListener)
         host?.closeClipboard()
         host?.closeStickers()
+        host?.closeQuick()
         super.onDestroy()
     }
 
@@ -129,6 +178,7 @@ class ZetaIME : InputMethodService() {
             ((info?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         h.closeClipboard()
         h.closeStickers()
+        h.closeQuick()
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.kv.reload()
         val layer = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) 1 else 0
@@ -142,6 +192,7 @@ class ZetaIME : InputMethodService() {
     override fun onFinishInputView(finishingInput: Boolean) {
         host?.closeClipboard()
         host?.closeStickers()
+        host?.closeQuick()
         super.onFinishInputView(finishingInput)
     }
 

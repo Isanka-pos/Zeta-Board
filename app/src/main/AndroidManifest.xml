@@ -31,6 +31,12 @@
             android:windowSoftInputMode="stateHidden|adjustResize" />
 
         <activity
+            android:name=".QuickTextActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden"
+            android:exported="false"
+            android:windowSoftInputMode="stateHidden|adjustResize" />
+
+        <activity
             android:name=".StickerActivity"
             android:label="@string/sticker_share_label"
             android:theme="@style/StickerPickTheme"
