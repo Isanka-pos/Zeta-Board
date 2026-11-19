@@ -116,7 +116,8 @@ class Voice(private val ctx: Context, private val cb: Callback) {
             else -> {
                 // Auto: Sinhala first, English as the second language the speech service may switch to
                 i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK")
-                i.putStringArrayListExtra(RecognizerIntent.EXTRA_ADDITIONAL_LANGUAGES, arrayListOf("en-US"))
+                // not a public SDK constant, so the extra is named directly; a speech service that does not know it just ignores it
+                i.putStringArrayListExtra("android.speech.extra.ADDITIONAL_LANGUAGES", arrayListOf("en-US"))
                 if (Build.VERSION.SDK_INT >= 33) {
                     i.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
                     i.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, arrayListOf("si-LK", "en-US"))
