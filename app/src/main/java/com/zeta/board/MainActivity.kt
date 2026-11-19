@@ -504,6 +504,7 @@ class MainActivity : Activity() {
         lp.topMargin = dp(14)
         c.addView(open, lp)
         c.addView(switchRow("Auto-expand shortcuts", "Type a shortcut like .welcome and press space. Off in password fields.", "quick_auto", true))
+        c.addView(switchRow("Suggestion on toolbar", "When you type a shortcut like .welcome, its message shows above the keys. Tap it to swap it in.", "quick_suggest", true))
         return c
     }
 

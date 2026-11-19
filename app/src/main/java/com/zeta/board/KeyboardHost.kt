@@ -13,7 +13,7 @@ import android.widget.LinearLayout
  * Container used by the IME and by the in-app preview: the normal keyboard plus the clipboard panel.
  * All text goes through [Output], so both places behave the same.
  */
-class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, TranslatePanel.Callback {
+class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, TranslatePanel.Callback, ToolsPanel.Callback {
 
     interface Output {
         fun commit(s: String)
@@ -40,6 +40,12 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         /** True when Quick Text may be used in the current field (false for password / private fields). */
         fun quickAllowed(): Boolean = true
 
+        /** Quick Text suggestion: the saved message when the word before the cursor is an enabled shortcut, else null. */
+        fun quickSuggestion(): String? = null
+
+        /** Quick Text suggestion: swaps the shortcut before the cursor for its message. True when it did. */
+        fun applyQuick(): Boolean = false
+
         /** Opens the Quick Text Manager screen. */
         fun openQuickManager() {}
 
@@ -62,11 +68,15 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private val stickers = StickerPanel(ctx, this)
     private val quick = QuickPanel(ctx, this)
     private val translate = TranslatePanel(ctx, this)
+    private val tools = ToolsPanel(ctx, this)
     private var panelOpen = false
     private var stickersOpen = false
     private var quickOpen = false
     private var translateOpen = false
+    private var toolsOpen = false
     private var typing = false
+    /** After a suggestion was used the toolbar stays normal until the user types again (the message itself may end like a shortcut). */
+    private var quickSuppress = false
     /** Tells the keyboard service when a private panel (clipboard / stickers) is open, so its window can block screenshots. */
     var onSecure: ((Boolean) -> Unit)? = null
     private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen || quickOpen || translateOpen) }
@@ -80,11 +90,13 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             stickers.applyTheme(it)
             quick.applyTheme(it)
             translate.applyTheme(it)
+            tools.applyTheme(it)
         }
         panel.applyTheme(kv.theme)
         stickers.applyTheme(kv.theme)
         quick.applyTheme(kv.theme)
         translate.applyTheme(kv.theme)
+        tools.applyTheme(kv.theme)
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(stickers, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         stickers.visibility = GONE
@@ -92,6 +104,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         quick.visibility = GONE
         addView(translate, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         translate.visibility = GONE
+        addView(tools, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        tools.visibility = GONE
         addView(kv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panel.visibility = GONE
     }
@@ -106,6 +120,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openClipboard() {
         if (panelOpen) return
+        closeTools()
         closeQuick()
         closeTranslate()
         panelOpen = true
@@ -129,6 +144,53 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         panel.visibility = GONE
         kv.visibility = VISIBLE
         syncSecure()
+    }
+
+    // ---- tool list ----
+
+    fun openTools() {
+        if (toolsOpen) return
+        closeClipboard()
+        closeStickers()
+        closeQuick()
+        closeTranslate()
+        toolsOpen = true
+        typing = false
+        val lp = tools.layoutParams as LayoutParams
+        lp.height = kv.preferredHeight()
+        tools.layoutParams = lp
+        tools.open()
+        tools.visibility = VISIBLE
+        tools.alpha = 0f
+        tools.translationY = 24f * d
+        tools.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        kv.visibility = GONE
+        refreshSuggestion()
+    }
+
+    fun closeTools() {
+        if (!toolsOpen) return
+        toolsOpen = false
+        typing = false
+        tools.animate().cancel()
+        tools.close()
+        tools.visibility = GONE
+        kv.visibility = VISIBLE
+        refreshSuggestion()
+    }
+
+    override fun onToolRun(id: Int) {
+        // the theme button changes the look right here, so the list stays open; everything else leaves it first
+        if (id != Tools.THEME) closeTools()
+        kv.runTool(id)
+    }
+
+    override fun onToolsClose() {
+        closeTools()
+    }
+
+    override fun onPinsChanged() {
+        kv.reloadTools()
     }
 
     // ---- zeta translate ----
@@ -159,6 +221,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openTranslate() {
         if (translateOpen) return
+        closeTools()
         closeClipboard()
         closeStickers()
         closeQuick()
@@ -199,8 +262,23 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     // ---- quick text ----
 
+    /**
+     * Shows or hides the Quick Text suggestion on the toolbar. Cheap to call often: the toolbar only redraws when it changes.
+     * [reset] is true when a new text field starts.
+     */
+    fun refreshSuggestion(reset: Boolean = false) {
+        if (reset) quickSuppress = false
+        val m = if (quickSuppress || panelOpen || stickersOpen || quickOpen || translateOpen || toolsOpen) null else try {
+            out.quickSuggestion()
+        } catch (e: Exception) {
+            null
+        }
+        kv.setSuggestion(m)
+    }
+
     fun openQuick() {
         if (quickOpen) return
+        closeTools()
         closeClipboard()
         closeStickers()
         closeTranslate()
@@ -284,6 +362,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openStickers() {
         if (stickersOpen) return
+        closeTools()
         closeClipboard()
         closeQuick()
         closeTranslate()
@@ -364,18 +443,42 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             if (translateOpen) translate.insert(s) else if (quickOpen) quick.insert(s) else panel.insert(s)
             return
         }
+        quickSuppress = false
         // Quick Text: a typed delimiter right after a shortcut expands it (the IME decides if it is allowed)
-        if (s.length == 1 && QuickText.isDelimiter(s[0]) && out.expand(s)) return
+        if (s.length == 1 && QuickText.isDelimiter(s[0]) && out.expand(s)) {
+            refreshSuggestion()
+            return
+        }
         val st = Prefs.getI(context, "textstyle", 0)
         out.commit(if (st != 0) TextStyles.convert(st, s) else s)
+        refreshSuggestion()
     }
 
     override fun onAction(a: Int) {
         when (a) {
-            KeyboardView.DEL -> if (routed()) (if (translateOpen) translate.backspace() else if (quickOpen) quick.backspace() else panel.backspace()) else out.del()
-            KeyboardView.ENTER -> if (routed()) (if (translateOpen) translate.enter() else if (quickOpen) quick.enter() else panel.enter()) else out.enter()
-            KeyboardView.LEFT -> if (!routed()) out.cursor(-1)
-            KeyboardView.RIGHT -> if (!routed()) out.cursor(1)
+            KeyboardView.DEL -> if (routed()) (if (translateOpen) translate.backspace() else if (quickOpen) quick.backspace() else panel.backspace()) else {
+                quickSuppress = false
+                out.del()
+                refreshSuggestion()
+            }
+            KeyboardView.ENTER -> if (routed()) (if (translateOpen) translate.enter() else if (quickOpen) quick.enter() else panel.enter()) else {
+                quickSuppress = false
+                out.enter()
+                refreshSuggestion()
+            }
+            KeyboardView.LEFT -> if (!routed()) {
+                out.cursor(-1)
+                refreshSuggestion()
+            }
+            KeyboardView.RIGHT -> if (!routed()) {
+                out.cursor(1)
+                refreshSuggestion()
+            }
+            KeyboardView.TOOLS -> openTools()
+            KeyboardView.SUGGEST -> {
+                if (out.applyQuick()) quickSuppress = true
+                refreshSuggestion()
+            }
             KeyboardView.CLIPBOARD -> openClipboard()
             KeyboardView.STICKER -> openStickers()
             KeyboardView.QUICK -> openQuick()

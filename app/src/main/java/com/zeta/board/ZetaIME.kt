@@ -108,6 +108,44 @@ class ZetaIME : InputMethodService() {
             }
         }
 
+        override fun quickSuggestion(): String? {
+            if (secure || !Prefs.getB(this@ZetaIME, "quick_suggest", true)) return null
+            if (!QuickRepo.hasEnabled()) return null
+            val ic = currentInputConnection ?: return null
+            return try {
+                if (!ic.getSelectedText(0).isNullOrEmpty()) return null
+                val before = ic.getTextBeforeCursor(QuickText.MAX_SC + 2, 0) ?: return null
+                val tok = QuickText.tokenAtEnd(before) ?: return null
+                QuickRepo.lookup(tok)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        override fun applyQuick(): Boolean {
+            if (secure || expanding) return false
+            val ic = currentInputConnection ?: return false
+            expanding = true
+            try {
+                if (!ic.getSelectedText(0).isNullOrEmpty()) return false
+                val before = ic.getTextBeforeCursor(QuickText.MAX_SC + 2, 0) ?: return false
+                val tok = QuickText.tokenAtEnd(before) ?: return false
+                val msg = QuickRepo.lookup(tok) ?: return false
+                ic.beginBatchEdit()
+                try {
+                    if (!ic.deleteSurroundingText(tok.length, 0)) return false
+                    ic.commitText(msg, 1)
+                } finally {
+                    ic.endBatchEdit()
+                }
+                return true
+            } catch (e: Exception) {
+                return false
+            } finally {
+                expanding = false
+            }
+        }
+
         override fun insertQuick(text: String): Boolean {
             if (secure) return false
             val ic = currentInputConnection ?: return false
@@ -184,11 +222,18 @@ class ZetaIME : InputMethodService() {
         host?.closeStickers()
         host?.closeQuick()
         host?.closeTranslate()
+        host?.closeTools()
         Translator.cancel()
         super.onDestroy()
     }
 
     override fun onEvaluateFullscreenMode(): Boolean = false
+
+    /** The text or cursor changed (typing, the app clearing the field after Send, the user moving the cursor): update the Quick Text suggestion. */
+    override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        host?.refreshSuggestion()
+    }
 
     override fun onCreateInputView(): View {
         val h = KeyboardHost(this, output)
@@ -214,12 +259,14 @@ class ZetaIME : InputMethodService() {
         h.closeStickers()
         h.closeQuick()
         h.closeTranslate()
+        h.closeTools()
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.kv.reload()
         val layer = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) 1 else 0
         val cap = cls == InputType.TYPE_CLASS_TEXT && (t and InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) != 0
         h.kv.startInput(layer, if (cap) 1 else 0)
         if (!secure) h.onStartInput()
+        h.refreshSuggestion(true)
         captureClip(false)
         UpdateWatcher.checkSoon(this)
     }
@@ -229,6 +276,7 @@ class ZetaIME : InputMethodService() {
         host?.closeStickers()
         host?.closeQuick()
         host?.closeTranslate()
+        host?.closeTools()
         Translator.cancel()
         super.onFinishInputView(finishingInput)
     }

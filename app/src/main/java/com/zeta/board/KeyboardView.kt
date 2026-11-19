@@ -40,6 +40,11 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val STICKER = 7
         const val QUICK = 8
         const val TRANSLATE = 9
+        /** The Quick Text suggestion on the toolbar was tapped. */
+        const val SUGGEST = 10
+        /** The tool list button (last icon on the toolbar) was tapped. */
+        const val TOOLS = 11
+        private const val TOOL_SUG = 99
 
         private const val K_CHAR = 0
         private const val K_SHIFT = 1
@@ -136,12 +141,18 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private var fontReq = false
     private val rect = RectF()
     private val altRect = RectF()
-    private val toolRects = Array(6) { RectF() }
-    private val toolIcons = intArrayOf(R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_quick, R.drawable.ic_translate, R.drawable.ic_palette, R.drawable.ic_menu)
+    private val toolRects = Array(Tools.MAX_PINS + 1) { RectF() }
+    // the tools pinned to the toolbar (the user changes them in the tool list); the tool list button always comes after them
+    private var pins: List<Int> = Tools.DEFAULT
     private val cache = HashMap<Int, Drawable>()
 
     private var pressed: Key? = null
     private var pressedTool = -1
+
+    // Quick Text suggestion: while a typed shortcut matches, this strip replaces the logo, title and icons
+    private var suggestion: String? = null
+    private var sugFlat = ""
+    private val sugRect = RectF()
 
     // tool list: the icons that do not fit on the toolbar open from the last (menu) icon
     private var menuOpen = false
@@ -282,6 +293,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         haptic = Prefs.getB(c, "haptic", true)
         sound = Prefs.getB(c, "sound", false)
         preview = Prefs.getB(c, "preview", true)
+        pins = Tools.pins(c)
         shape = Prefs.getI(c, "shape", 0)
         rgb = Prefs.getI(c, "rgb", 0)
         rgbSpeed = Prefs.getI(c, "rgbspeed", 5)
@@ -305,6 +317,53 @@ class KeyboardView(ctx: Context) : View(ctx) {
         rows = build()
         requestLayout()
         layoutKeys()
+        invalidate()
+    }
+
+    /** The pinned tools changed (tool list): redraws the toolbar with the new set. */
+    fun reloadTools() {
+        pins = Tools.pins(context)
+        pressedTool = -1
+        invalidate()
+    }
+
+    /** Runs one tool, the same as tapping its icon on the toolbar. */
+    fun runTool(id: Int) {
+        when (id) {
+            Tools.STICKER -> listener?.onAction(STICKER)
+            Tools.CLIPBOARD -> listener?.onAction(CLIPBOARD)
+            Tools.QUICK -> listener?.onAction(QUICK)
+            Tools.TRANSLATE -> listener?.onAction(TRANSLATE)
+            Tools.THEME -> {
+                val n = (Prefs.getI(context, "theme", 0) + 1) % Themes.all.size
+                Prefs.setI(context, "theme", n)
+                theme = Themes.get(n)
+            }
+            Tools.STYLE -> {
+                menuOpen = false
+                layer = 5
+                rebuild()
+            }
+            Tools.EMOJI -> {
+                menuOpen = false
+                layer = 4
+                emojiPage = 0
+                emojiCat = if (emojiList(Emojis.RECENT).isNotEmpty()) Emojis.RECENT else 1
+                rebuild()
+            }
+            Tools.SETTINGS -> listener?.onAction(SETTINGS)
+        }
+        invalidate()
+    }
+
+    /** Shows [msg] on the toolbar in place of the icons, or brings the icons back when [msg] is null. */
+    fun setSuggestion(msg: String?) {
+        if (msg == suggestion) return
+        suggestion = msg
+        sugFlat = msg?.replace(Regex("\\s+"), " ")?.trim() ?: ""
+        if (msg != null && pressedTool in toolRects.indices) pressedTool = -1
+        if (msg == null && pressedTool == TOOL_SUG) pressedTool = -1
+        if (msg != null) menuOpen = false
         invalidate()
     }
 
@@ -568,7 +627,53 @@ class KeyboardView(ctx: Context) : View(ctx) {
         p.style = Paint.Style.FILL
     }
 
+    private fun drawSuggestion(c: Canvas) {
+        val t = theme
+        val h = toolH
+        val padX = dp(8f)
+        sugRect.set(padX, dp(5f), width - padX, h - dp(4f))
+        val down = pressedTool == TOOL_SUG
+        p.shader = null
+        p.style = Paint.Style.FILL
+        p.color = t.accent
+        p.alpha = if (down) 120 else 60
+        c.drawRoundRect(sugRect, dp(12f), dp(12f), p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = dp(1f)
+        p.color = t.accent
+        p.alpha = 160
+        c.drawRoundRect(sugRect, dp(12f), dp(12f), p)
+        p.style = Paint.Style.FILL
+        p.alpha = 255
+        rect.set(sugRect.left + dp(6f), 0f, sugRect.left + dp(30f), h)
+        icon(c, R.drawable.ic_quick, rect, t.text, dp(18f))
+
+        val savedTf = tp.typeface
+        tp.typeface = brandTf
+        tp.textAlign = Paint.Align.LEFT
+        tp.letterSpacing = 0f
+        tp.textSize = dp(13f)
+        tp.color = t.text
+        tp.alpha = 255
+        val tx = sugRect.left + dp(36f)
+        val maxW = (sugRect.right - dp(12f) - tx).coerceAtLeast(1f)
+        var shown = sugFlat
+        val n = tp.breakText(shown, true, maxW, null)
+        if (n < shown.length) {
+            var cut = (n - 1).coerceAtLeast(0)
+            if (cut > 0 && Character.isHighSurrogate(shown[cut - 1])) cut--
+            shown = shown.substring(0, cut) + "\u2026"
+        }
+        c.drawText(shown, tx, baseline(h / 2f), tp)
+        tp.textAlign = Paint.Align.CENTER
+        tp.typeface = savedTf
+    }
+
     private fun drawToolbar(c: Canvas) {
+        if (suggestion != null) {
+            drawSuggestion(c)
+            return
+        }
         val t = theme
         val h = toolH
         val s = dp(28f)
@@ -580,8 +685,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
         Logo.draw(c, context, lx, ly, lx + s, ly + s, dp(8f))
 
         val tw = dp(40f)
-        for (i in toolRects.indices) {
-            val right = width - dp(6f) - (toolRects.size - 1 - i) * tw
+        val cnt = pins.size + 1
+        for (i in 0 until cnt) {
+            val right = width - dp(6f) - (cnt - 1 - i) * tw
             toolRects[i].set(right - tw, 0f, right, h)
         }
         val savedTf = tp.typeface
@@ -609,13 +715,13 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.letterSpacing = 0f
         tp.typeface = savedTf
 
-        for (i in toolRects.indices) {
+        for (i in 0 until cnt) {
             if (pressedTool == i) {
                 p.color = t.accent
                 p.alpha = 90
                 c.drawCircle(toolRects[i].centerX(), h / 2f, dp(18f), p)
             }
-            icon(c, toolIcons[i], toolRects[i], t.text, dp(20f))
+            icon(c, if (i < pins.size) Tools.icon(pins[i]) else R.drawable.ic_menu, toolRects[i], t.text, dp(20f))
         }
         if (layer == 4 && emojiPages > 1) {
             tp.textAlign = Paint.Align.RIGHT
@@ -881,7 +987,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
         if (y < toolH) {
             pressed = null
-            pressedTool = toolRects.indexOfFirst { it.contains(x, y) }
+            pressedTool = if (suggestion != null) TOOL_SUG else toolAt(x, y)
             if (pressedTool >= 0) feedback()
             invalidate()
             return
@@ -987,19 +1093,19 @@ class KeyboardView(ctx: Context) : View(ctx) {
         invalidate()
     }
 
+    private fun toolAt(x: Float, y: Float): Int {
+        for (i in 0..pins.size) if (toolRects[i].contains(x, y)) return i
+        return -1
+    }
+
     private fun toolTap(i: Int) {
-        when (i) {
-            0 -> listener?.onAction(STICKER)
-            1 -> listener?.onAction(CLIPBOARD)
-            2 -> listener?.onAction(QUICK)
-            3 -> listener?.onAction(TRANSLATE)
-            4 -> {
-                val n = (Prefs.getI(context, "theme", 0) + 1) % Themes.all.size
-                Prefs.setI(context, "theme", n)
-                theme = Themes.get(n)
-            }
-            5 -> menuOpen = !menuOpen
+        if (i == TOOL_SUG) {
+            if (suggestion != null) listener?.onAction(SUGGEST)
+            invalidate()
+            return
         }
+        if (suggestion != null) return // the icons are hidden, a press that started on one must not fire
+        if (i == pins.size) listener?.onAction(TOOLS) else if (i in pins.indices) runTool(pins[i])
         invalidate()
     }
 
