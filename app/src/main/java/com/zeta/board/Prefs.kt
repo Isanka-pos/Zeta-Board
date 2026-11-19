@@ -12,4 +12,9 @@ object Prefs {
     fun setS(c: Context, k: String, v: String) = sp(c).edit().putString(k, v).apply()
     fun getB(c: Context, k: String, d: Boolean) = sp(c).getBoolean(k, d)
     fun setB(c: Context, k: String, v: Boolean) = sp(c).edit().putBoolean(k, v).apply()
+    fun removeAll(c: Context, keys: List<String>) {
+        val e = sp(c).edit()
+        for (k in keys) e.remove(k)
+        e.apply()
+    }
 }

@@ -28,18 +28,19 @@ object Tools {
     const val STYLE = 5
     const val EMOJI = 6
     const val SETTINGS = 7
-    const val COUNT = 8
+    const val VOICE = 8
+    const val COUNT = 9
 
     /** How many tools fit on the top bar (the tool list button always sits after them). */
     const val MAX_PINS = 5
 
-    val DEFAULT: List<Int> = listOf(STICKER, CLIPBOARD, QUICK, TRANSLATE, THEME)
+    val DEFAULT: List<Int> = listOf(STICKER, CLIPBOARD, QUICK, TRANSLATE, VOICE)
 
     private val icons = intArrayOf(
         R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_quick, R.drawable.ic_translate,
-        R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_emoji, R.drawable.ic_tune
+        R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_emoji, R.drawable.ic_tune, R.drawable.ic_mic
     )
-    private val names = arrayOf("Stickers", "Clipboard", "Quick Text", "Translate", "Theme", "Text style", "Emoji", "Settings")
+    private val names = arrayOf("Stickers", "Clipboard", "Quick Text", "Translate", "Theme", "Text style", "Emoji", "Settings", "Voice")
 
     fun icon(id: Int): Int = icons[id]
 
@@ -87,6 +88,7 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
         const val TILE = 3
         const val RESET = 4
         const val SLOTS = 6 // 5 pinned places + the close button
+        const val COLS = 5 // tools per row in the list
     }
 
     private val dm = ctx.resources.displayMetrics.density
@@ -156,16 +158,16 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
     private val barH: Float get() = dp(52f)
     private val hintH: Float get() = dp(26f)
     private val padX: Float get() = dp(10f)
-    private val rows: Int get() = (Tools.COUNT + 3) / 4
+    private val rows: Int get() = (Tools.COUNT + COLS - 1) / COLS
 
     private fun slotW(): Float = (width - 2 * padX) / SLOTS
     private fun slotCx(s: Int): Float = padX + slotW() * (s + 0.5f)
     private fun gridTop(): Float = barH + hintH
-    private fun cellW(): Float = (width - 2 * padX) / 4f
+    private fun cellW(): Float = (width - 2 * padX) / COLS
     private fun cellH(): Float = min(dp(86f), (height - gridTop() - dp(6f)) / rows).coerceAtLeast(dp(44f))
-    private fun circleR(): Float = min(dp(26f), cellH() * 0.33f)
-    private fun tileCx(i: Int): Float = padX + cellW() * (i % 4 + 0.5f)
-    private fun tileCy(i: Int): Float = gridTop() + (i / 4) * cellH() + circleR() + dp(4f)
+    private fun circleR(): Float = min(min(dp(26f), cellH() * 0.33f), cellW() * 0.36f)
+    private fun tileCx(i: Int): Float = padX + cellW() * (i % COLS + 0.5f)
+    private fun tileCy(i: Int): Float = gridTop() + (i / COLS) * cellH() + circleR() + dp(4f)
 
     private fun customized(): Boolean = pins != Tools.DEFAULT
 
@@ -201,8 +203,8 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
         if (x < padX || x > width - padX) return
         val col = ((x - padX) / cellW()).toInt()
         val row = ((y - gridTop()) / cellH()).toInt()
-        val i = row * 4 + col
-        if (col in 0..3 && row >= 0 && i in 0 until Tools.COUNT) {
+        val i = row * COLS + col
+        if (col in 0 until COLS && row >= 0 && i in 0 until Tools.COUNT) {
             tKind = TILE
             tIdx = i
         }

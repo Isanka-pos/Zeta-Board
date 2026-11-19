@@ -44,6 +44,13 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val SUGGEST = 10
         /** The tool list button (last icon on the toolbar) was tapped. */
         const val TOOLS = 11
+        /** The status message on the toolbar (translating, error) was tapped. */
+        const val STATUS = 12
+        /** The mic (voice typing) was tapped. */
+        const val VOICE = 13
+        const val STATUS_BUSY = 0
+        const val STATUS_INFO = 1
+        const val STATUS_ERROR = 2
         private const val TOOL_SUG = 99
 
         private const val K_CHAR = 0
@@ -152,6 +159,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
     // Quick Text suggestion: while a typed shortcut matches, this strip replaces the logo, title and icons
     private var suggestion: String? = null
     private var sugFlat = ""
+    // status message (Zeta Translate): shown on the same strip and wins over the suggestion
+    private var statusMsg: String? = null
+    private var statusKind = STATUS_INFO
+    private var statusIcon = R.drawable.ic_translate
     private val sugRect = RectF()
 
     // tool list: the icons that do not fit on the toolbar open from the last (menu) icon
@@ -352,6 +363,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 rebuild()
             }
             Tools.SETTINGS -> listener?.onAction(SETTINGS)
+            Tools.VOICE -> listener?.onAction(VOICE)
         }
         invalidate()
     }
@@ -362,7 +374,21 @@ class KeyboardView(ctx: Context) : View(ctx) {
         suggestion = msg
         sugFlat = msg?.replace(Regex("\\s+"), " ")?.trim() ?: ""
         if (msg != null && pressedTool in toolRects.indices) pressedTool = -1
-        if (msg == null && pressedTool == TOOL_SUG) pressedTool = -1
+        if (!stripOn() && pressedTool == TOOL_SUG) pressedTool = -1
+        if (msg != null) menuOpen = false
+        invalidate()
+    }
+
+    private fun stripOn(): Boolean = statusMsg != null || suggestion != null
+
+    /** Shows a short status on the toolbar in place of the icons ([STATUS_BUSY], [STATUS_INFO] or [STATUS_ERROR]); null clears it. */
+    fun setStatus(msg: String?, kind: Int = STATUS_INFO, icon: Int = R.drawable.ic_translate) {
+        if (msg == statusMsg && kind == statusKind && icon == statusIcon) return
+        statusMsg = msg
+        statusKind = kind
+        statusIcon = icon
+        if (msg != null && pressedTool in toolRects.indices) pressedTool = -1
+        if (!stripOn() && pressedTool == TOOL_SUG) pressedTool = -1
         if (msg != null) menuOpen = false
         invalidate()
     }
@@ -627,7 +653,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         p.style = Paint.Style.FILL
     }
 
-    private fun drawSuggestion(c: Canvas) {
+    private fun drawStrip(c: Canvas, text: String, tint: Int, iconRes: Int) {
         val t = theme
         val h = toolH
         val padX = dp(8f)
@@ -635,18 +661,18 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val down = pressedTool == TOOL_SUG
         p.shader = null
         p.style = Paint.Style.FILL
-        p.color = t.accent
+        p.color = tint
         p.alpha = if (down) 120 else 60
         c.drawRoundRect(sugRect, dp(12f), dp(12f), p)
         p.style = Paint.Style.STROKE
         p.strokeWidth = dp(1f)
-        p.color = t.accent
+        p.color = tint
         p.alpha = 160
         c.drawRoundRect(sugRect, dp(12f), dp(12f), p)
         p.style = Paint.Style.FILL
         p.alpha = 255
         rect.set(sugRect.left + dp(6f), 0f, sugRect.left + dp(30f), h)
-        icon(c, R.drawable.ic_quick, rect, t.text, dp(18f))
+        icon(c, iconRes, rect, t.text, dp(18f))
 
         val savedTf = tp.typeface
         tp.typeface = brandTf
@@ -657,7 +683,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.alpha = 255
         val tx = sugRect.left + dp(36f)
         val maxW = (sugRect.right - dp(12f) - tx).coerceAtLeast(1f)
-        var shown = sugFlat
+        var shown = text
         val n = tp.breakText(shown, true, maxW, null)
         if (n < shown.length) {
             var cut = (n - 1).coerceAtLeast(0)
@@ -670,8 +696,13 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
 
     private fun drawToolbar(c: Canvas) {
+        val st = statusMsg
+        if (st != null) {
+            drawStrip(c, st, if (statusKind == STATUS_ERROR) 0xFFE5484D.toInt() else theme.accent, statusIcon)
+            return
+        }
         if (suggestion != null) {
-            drawSuggestion(c)
+            drawStrip(c, sugFlat, theme.accent, R.drawable.ic_quick)
             return
         }
         val t = theme
@@ -987,7 +1018,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
         if (y < toolH) {
             pressed = null
-            pressedTool = if (suggestion != null) TOOL_SUG else toolAt(x, y)
+            pressedTool = if (stripOn()) TOOL_SUG else toolAt(x, y)
             if (pressedTool >= 0) feedback()
             invalidate()
             return
@@ -1100,11 +1131,11 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun toolTap(i: Int) {
         if (i == TOOL_SUG) {
-            if (suggestion != null) listener?.onAction(SUGGEST)
+            if (statusMsg != null) listener?.onAction(STATUS) else if (suggestion != null) listener?.onAction(SUGGEST)
             invalidate()
             return
         }
-        if (suggestion != null) return // the icons are hidden, a press that started on one must not fire
+        if (stripOn()) return // the icons are hidden, a press that started on one must not fire
         if (i == pins.size) listener?.onAction(TOOLS) else if (i in pins.indices) runTool(pins[i])
         invalidate()
     }

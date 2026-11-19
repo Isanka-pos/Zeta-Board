@@ -4,16 +4,21 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.Toast
 import java.io.File
 import android.widget.LinearLayout
 
+/** Text picked up for translation. [problem] is set (and [text] empty) when it cannot be translated, with a message to show. */
+class TrSource(val text: String, val selection: Boolean, val problem: String? = null)
+
 /**
  * Container used by the IME and by the in-app preview: the normal keyboard plus the clipboard panel.
  * All text goes through [Output], so both places behave the same.
  */
-class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, TranslatePanel.Callback, ToolsPanel.Callback {
+class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, ToolsPanel.Callback {
 
     interface Output {
         fun commit(s: String)
@@ -49,17 +54,23 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         /** Opens the Quick Text Manager screen. */
         fun openQuickManager() {}
 
-        /** Zeta Translate: inserts translated text into the focused field. False when there is no field or it is private. */
-        fun insertTranslation(text: String): Boolean = false
+        /** Voice typing: false in password / private fields. */
+        fun voiceAllowed(): Boolean = true
 
-        /** True when Translate may be used in the current field (false for password / private fields). */
+        /** Voice typing: the character just before the cursor, or null at the start of the field. */
+        fun charBeforeCursor(): Char? = null
+
+        /** Voice typing: opens the screen that asks for the microphone permission. */
+        fun requestMic() {}
+
+        /** Zeta Translate: false in password / private fields. */
         fun translateAllowed(): Boolean = true
 
-        /** The text currently selected in the focused field, or null when nothing (or nothing allowed) is selected. */
-        fun selectedText(): String? = null
+        /** Zeta Translate: the text to translate (the selection, or the whole field when nothing is selected). Null when there is no field. */
+        fun translateSource(): TrSource? = null
 
-        /** Replaces the current selection with [text], only if the selection still equals [expected]. */
-        fun replaceSelection(expected: String, text: String): Boolean = false
+        /** Zeta Translate: swaps exactly [src] for [translated]. False when the field changed in the meantime. */
+        fun applyTranslation(src: TrSource, translated: String): Boolean = false
     }
 
     val kv = KeyboardView(ctx)
@@ -67,19 +78,17 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private val panel = ClipPanel(ctx, vm, this)
     private val stickers = StickerPanel(ctx, this)
     private val quick = QuickPanel(ctx, this)
-    private val translate = TranslatePanel(ctx, this)
     private val tools = ToolsPanel(ctx, this)
     private var panelOpen = false
     private var stickersOpen = false
     private var quickOpen = false
-    private var translateOpen = false
     private var toolsOpen = false
     private var typing = false
     /** After a suggestion was used the toolbar stays normal until the user types again (the message itself may end like a shortcut). */
     private var quickSuppress = false
     /** Tells the keyboard service when a private panel (clipboard / stickers) is open, so its window can block screenshots. */
     var onSecure: ((Boolean) -> Unit)? = null
-    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen || quickOpen || translateOpen) }
+    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen || quickOpen) }
     private val d = ctx.resources.displayMetrics.density
 
     init {
@@ -89,21 +98,17 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             panel.applyTheme(it)
             stickers.applyTheme(it)
             quick.applyTheme(it)
-            translate.applyTheme(it)
             tools.applyTheme(it)
         }
         panel.applyTheme(kv.theme)
         stickers.applyTheme(kv.theme)
         quick.applyTheme(kv.theme)
-        translate.applyTheme(kv.theme)
         tools.applyTheme(kv.theme)
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(stickers, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         stickers.visibility = GONE
         addView(quick, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         quick.visibility = GONE
-        addView(translate, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        translate.visibility = GONE
         addView(tools, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         tools.visibility = GONE
         addView(kv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
@@ -111,7 +116,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     }
 
     private fun applyHeights() {
-        val target: View = if (translateOpen) translate else if (quickOpen) quick else panel
+        val target: View = if (quickOpen) quick else panel
         val lp = target.layoutParams as LayoutParams
         lp.height = if (typing) (196 * d).toInt() else kv.preferredHeight()
         target.layoutParams = lp
@@ -122,7 +127,6 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         if (panelOpen) return
         closeTools()
         closeQuick()
-        closeTranslate()
         panelOpen = true
         typing = false
         applyHeights()
@@ -153,7 +157,6 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         closeClipboard()
         closeStickers()
         closeQuick()
-        closeTranslate()
         toolsOpen = true
         typing = false
         val lp = tools.layoutParams as LayoutParams
@@ -195,69 +198,120 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     // ---- zeta translate ----
 
-    /** Translate button: with selected text it translates and replaces the selection; otherwise it opens the panel. */
+    private val ui = Handler(Looper.getMainLooper())
+    private val clearStatus = Runnable { kv.setStatus(null) }
+
+    private fun showStatus(msg: String, kind: Int, ms: Long) {
+        ui.removeCallbacks(clearStatus)
+        kv.setStatus(msg, kind)
+        if (ms > 0) ui.postDelayed(clearStatus, ms)
+    }
+
+    /** Stops a running translation or voice typing and clears its message from the toolbar. */
+    fun cancelWork() {
+        Translator.cancel()
+        voice.cancel()
+        ui.removeCallbacks(clearStatus)
+        kv.setStatus(null)
+    }
+
+    /**
+     * Translate button: takes the selected text (or the whole message when nothing is selected), translates it into the
+     * language chosen in the Zeta Board app and swaps the translation in. Progress and problems show on the toolbar.
+     */
     private fun translateAction() {
-        val sel = if (out.translateAllowed()) out.selectedText() else null
-        if (sel == null) {
-            openTranslate()
+        if (!out.translateAllowed()) {
+            showStatus("Translate is off in password fields", KeyboardView.STATUS_ERROR, 3000)
             return
         }
-        val langs = Translator.languages(context)
-        val from = Prefs.getS(context, "tr_from", "auto").let { if (it == "auto" || langs.any { l -> l.code == it }) it else "auto" }
-        val to = Prefs.getS(context, "tr_to", "en").let { if (langs.any { l -> l.code == it }) it else "en" }
-        Toast.makeText(context, "Translating\u2026", Toast.LENGTH_SHORT).show()
-        Translator.run(context, sel, from, to) { res, err ->
+        val src = out.translateSource()
+        if (src == null) {
+            showStatus("Tap a text box first", KeyboardView.STATUS_ERROR, 3000)
+            return
+        }
+        if (src.problem != null) {
+            showStatus(src.problem, KeyboardView.STATUS_ERROR, 3200)
+            return
+        }
+        if (src.text.length > Translator.MAX_CHARS) {
+            showStatus("Too long. Select up to ${Translator.MAX_CHARS} characters", KeyboardView.STATUS_ERROR, 3500)
+            return
+        }
+        val lang = Langs.target(context)
+        showStatus("Translating to ${lang.name}\u2026", KeyboardView.STATUS_BUSY, 0)
+        Translator.run(src.text, lang.code) { res, err ->
             if (err != null) {
-                Toast.makeText(context, err.message ?: "Translation failed", Toast.LENGTH_LONG).show()
-            } else if (res != null) {
-                if (out.replaceSelection(sel, res.text)) {
-                    TrHistory.add(context, THistItem(System.currentTimeMillis(), sel, res.text, from, to))
-                } else {
-                    Toast.makeText(context, "Selection changed \u2014 nothing was replaced", Toast.LENGTH_LONG).show()
-                }
+                showStatus(err.message ?: "Translation failed", KeyboardView.STATUS_ERROR, 3500)
+            } else if (res == null) {
+                showStatus("Translation failed", KeyboardView.STATUS_ERROR, 3500)
+            } else if (Langs.same(res.detected, lang.code)) {
+                showStatus("Already in ${lang.name}", KeyboardView.STATUS_INFO, 2200)
+            } else if (out.applyTranslation(src, res.text)) {
+                ui.removeCallbacks(clearStatus)
+                kv.setStatus(null)
+                refreshSuggestion()
+            } else {
+                showStatus("The text changed. Nothing was replaced", KeyboardView.STATUS_ERROR, 3500)
             }
         }
     }
 
-    fun openTranslate() {
-        if (translateOpen) return
-        closeTools()
-        closeClipboard()
-        closeStickers()
-        closeQuick()
-        translateOpen = true
-        typing = false
-        applyHeights()
-        translate.visibility = VISIBLE
-        translate.alpha = 0f
-        translate.translationY = 24f * d
-        translate.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
-        kv.visibility = GONE
-        translate.open(!out.translateAllowed())
-        syncSecure()
-    }
+    // ---- voice typing ----
 
-    fun closeTranslate() {
-        if (!translateOpen) return
-        translateOpen = false
-        typing = false
-        translate.animate().cancel()
-        translate.close()
-        translate.visibility = GONE
-        kv.visibility = VISIBLE
-        syncSecure()
-    }
+    private val voice = Voice(ctx, object : Voice.Callback {
+        override fun onVoiceHeard(partial: String) {
+            ui.removeCallbacks(clearStatus)
+            var shown = if (partial.length > 36) partial.takeLast(36) else partial
+            if (shown.isNotEmpty() && Character.isLowSurrogate(shown[0])) shown = shown.substring(1)
+            if (partial.length > 36) shown = "\u2026$shown"
+            kv.setStatus(shown.ifEmpty { "Listening\u2026 speak now" }, KeyboardView.STATUS_BUSY, R.drawable.ic_mic)
+        }
 
-    override fun onTranslateInsert(text: String): Boolean = out.insertTranslation(text)
+        override fun onVoiceText(text: String) {
+            val prev = out.charBeforeCursor()
+            val space = prev != null && !prev.isWhitespace() && "([{\"'\u201C\u2018".indexOf(prev) < 0
+            out.commit(if (space) " $text" else text)
+            quickSuppress = false
+            refreshSuggestion()
+        }
 
-    override fun onTranslateClose() {
-        closeTranslate()
-    }
+        override fun onVoiceEnded(problem: String?, needMic: Boolean) {
+            ui.removeCallbacks(clearStatus)
+            if (problem == null) {
+                kv.setStatus(null)
+            } else if (needMic) {
+                out.requestMic()
+                showStatus(problem, KeyboardView.STATUS_INFO, 4000)
+            } else {
+                showStatus(problem, KeyboardView.STATUS_ERROR, 3500)
+            }
+            refreshSuggestion()
+        }
+    })
 
-    override fun onTranslateTyping(active: Boolean) {
-        typing = active
-        if (active) kv.startInput(0, 0)
-        applyHeights()
+    /** Mic button: starts voice typing (the toolbar message stops it). Speech goes into the focused field. */
+    private fun voiceAction() {
+        if (voice.active) {
+            voice.stop()
+            return
+        }
+        if (!out.voiceAllowed()) {
+            showStatus("Voice typing is off in password fields", KeyboardView.STATUS_ERROR, 3000)
+            return
+        }
+        if (!Voice.available(context)) {
+            showStatus("Voice typing is not available. Install or enable the Google app", KeyboardView.STATUS_ERROR, 4000)
+            return
+        }
+        if (!Voice.hasMic(context)) {
+            out.requestMic()
+            showStatus("Allow the microphone, then tap the mic again", KeyboardView.STATUS_INFO, 4000)
+            return
+        }
+        Translator.cancel()
+        ui.removeCallbacks(clearStatus)
+        kv.setStatus("Listening\u2026 speak now", KeyboardView.STATUS_BUSY, R.drawable.ic_mic)
+        voice.start()
     }
 
     // ---- quick text ----
@@ -268,7 +322,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
      */
     fun refreshSuggestion(reset: Boolean = false) {
         if (reset) quickSuppress = false
-        val m = if (quickSuppress || panelOpen || stickersOpen || quickOpen || translateOpen || toolsOpen) null else try {
+        val m = if (quickSuppress || panelOpen || stickersOpen || quickOpen || toolsOpen) null else try {
             out.quickSuggestion()
         } catch (e: Exception) {
             null
@@ -281,7 +335,6 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         closeTools()
         closeClipboard()
         closeStickers()
-        closeTranslate()
         quickOpen = true
         typing = false
         applyHeights()
@@ -365,7 +418,6 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         closeTools()
         closeClipboard()
         closeQuick()
-        closeTranslate()
         StickerHub.pendingShow = false
         stickersOpen = true
         typing = false
@@ -434,13 +486,13 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         }
     }
 
-    private fun routed(): Boolean = (panelOpen || quickOpen || translateOpen) && typing
+    private fun routed(): Boolean = (panelOpen || quickOpen) && typing
 
     // ---- KeyboardView.Listener ----
 
     override fun onText(s: String) {
         if (routed()) {
-            if (translateOpen) translate.insert(s) else if (quickOpen) quick.insert(s) else panel.insert(s)
+            if (quickOpen) quick.insert(s) else panel.insert(s)
             return
         }
         quickSuppress = false
@@ -456,12 +508,12 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     override fun onAction(a: Int) {
         when (a) {
-            KeyboardView.DEL -> if (routed()) (if (translateOpen) translate.backspace() else if (quickOpen) quick.backspace() else panel.backspace()) else {
+            KeyboardView.DEL -> if (routed()) (if (quickOpen) quick.backspace() else panel.backspace()) else {
                 quickSuppress = false
                 out.del()
                 refreshSuggestion()
             }
-            KeyboardView.ENTER -> if (routed()) (if (translateOpen) translate.enter() else if (quickOpen) quick.enter() else panel.enter()) else {
+            KeyboardView.ENTER -> if (routed()) (if (quickOpen) quick.enter() else panel.enter()) else {
                 quickSuppress = false
                 out.enter()
                 refreshSuggestion()
@@ -483,6 +535,13 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.STICKER -> openStickers()
             KeyboardView.QUICK -> openQuick()
             KeyboardView.TRANSLATE -> translateAction()
+            KeyboardView.VOICE -> voiceAction()
+            KeyboardView.STATUS -> if (voice.active) {
+                kv.setStatus("Finishing\u2026", KeyboardView.STATUS_BUSY, R.drawable.ic_mic)
+                voice.stop()
+            } else {
+                cancelWork()
+            }
             KeyboardView.SETTINGS -> out.settings()
         }
     }

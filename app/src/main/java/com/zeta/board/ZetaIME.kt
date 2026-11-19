@@ -158,33 +158,61 @@ class ZetaIME : InputMethodService() {
 
         override fun quickAllowed(): Boolean = !secure
 
+        override fun voiceAllowed(): Boolean = !secure
+
+        override fun charBeforeCursor(): Char? = try {
+            currentInputConnection?.getTextBeforeCursor(1, 0)?.firstOrNull()
+        } catch (e: Exception) {
+            null
+        }
+
+        override fun requestMic() {
+            try {
+                startActivity(Intent(this@ZetaIME, MicPermissionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {
+            }
+        }
+
         override fun translateAllowed(): Boolean = !secure
 
-        override fun selectedText(): String? {
-            if (secure) return null
+        override fun translateSource(): TrSource? {
             val ic = currentInputConnection ?: return null
             return try {
-                ic.getSelectedText(0)?.toString()?.takeIf { it.isNotBlank() }
+                val sel = ic.getSelectedText(0)?.toString()
+                if (!sel.isNullOrEmpty()) {
+                    if (sel.isBlank()) TrSource("", true, "Select some text first") else TrSource(sel, true)
+                } else if (selStart != selEnd) {
+                    TrSource("", true, "This app does not let the keyboard read the selection")
+                } else {
+                    val before = ic.getTextBeforeCursor(Translator.MAX_CHARS + 1, 0)?.toString() ?: ""
+                    val after = ic.getTextAfterCursor(Translator.MAX_CHARS + 1, 0)?.toString() ?: ""
+                    val all = before + after
+                    if (all.isBlank()) TrSource("", false, "Type a message first") else TrSource(all, false)
+                }
             } catch (e: Exception) {
                 null
             }
         }
 
-        override fun replaceSelection(expected: String, text: String): Boolean {
-            if (secure || text.isEmpty()) return false
+        override fun applyTranslation(src: TrSource, translated: String): Boolean {
+            if (secure || translated.isEmpty()) return false
             val ic = currentInputConnection ?: return false
             return try {
-                if (ic.getSelectedText(0)?.toString() != expected) false else ic.commitText(text, 1)
-            } catch (e: Exception) {
-                false
-            }
-        }
-
-        override fun insertTranslation(text: String): Boolean {
-            if (secure || text.isEmpty()) return false
-            val ic = currentInputConnection ?: return false
-            return try {
-                ic.commitText(text, 1)
+                if (src.selection) {
+                    if (ic.getSelectedText(0)?.toString() != src.text) return false
+                    ic.commitText(translated, 1)
+                } else {
+                    val before = ic.getTextBeforeCursor(Translator.MAX_CHARS + 1, 0)?.toString() ?: return false
+                    val after = ic.getTextAfterCursor(Translator.MAX_CHARS + 1, 0)?.toString() ?: return false
+                    if (before + after != src.text) return false
+                    ic.beginBatchEdit()
+                    try {
+                        if (!ic.deleteSurroundingText(before.length, after.length)) return false
+                        ic.commitText(translated, 1)
+                    } finally {
+                        ic.endBatchEdit()
+                    }
+                }
             } catch (e: Exception) {
                 false
             }
@@ -221,17 +249,22 @@ class ZetaIME : InputMethodService() {
         host?.closeClipboard()
         host?.closeStickers()
         host?.closeQuick()
-        host?.closeTranslate()
         host?.closeTools()
-        Translator.cancel()
+        host?.cancelWork()
         super.onDestroy()
     }
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
+    /** Where the cursor / selection is in the focused field (as the app last reported it). */
+    private var selStart = 0
+    private var selEnd = 0
+
     /** The text or cursor changed (typing, the app clearing the field after Send, the user moving the cursor): update the Quick Text suggestion. */
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        selStart = newSelStart
+        selEnd = newSelEnd
         host?.refreshSuggestion()
     }
 
@@ -258,7 +291,7 @@ class ZetaIME : InputMethodService() {
         h.closeClipboard()
         h.closeStickers()
         h.closeQuick()
-        h.closeTranslate()
+        if (!restarting) h.cancelWork()
         h.closeTools()
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.kv.reload()
@@ -266,6 +299,8 @@ class ZetaIME : InputMethodService() {
         val cap = cls == InputType.TYPE_CLASS_TEXT && (t and InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) != 0
         h.kv.startInput(layer, if (cap) 1 else 0)
         if (!secure) h.onStartInput()
+        selStart = info?.initialSelStart ?: 0
+        selEnd = info?.initialSelEnd ?: 0
         h.refreshSuggestion(true)
         captureClip(false)
         UpdateWatcher.checkSoon(this)
@@ -275,9 +310,8 @@ class ZetaIME : InputMethodService() {
         host?.closeClipboard()
         host?.closeStickers()
         host?.closeQuick()
-        host?.closeTranslate()
         host?.closeTools()
-        Translator.cancel()
+        host?.cancelWork()
         super.onFinishInputView(finishingInput)
     }
 

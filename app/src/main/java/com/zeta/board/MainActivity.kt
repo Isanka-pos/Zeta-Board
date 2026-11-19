@@ -175,6 +175,7 @@ class MainActivity : Activity() {
         refreshClipStat()
         refreshQuickStat()
         refreshUpdateUi()
+        micRefresh?.invoke()
         fontPaint?.invoke()
         textPaint?.invoke()
         if (splashDone && !Updater.dialogOpen && System.currentTimeMillis() - lastCheck > 60000L) checkUpdate(false)
@@ -559,7 +560,8 @@ class MainActivity : Activity() {
         MenuEntry("typing", "Typing & Fonts", "Text style, key font, feel", R.drawable.ic_font),
         MenuEntry("clipboard", "Clipboard", "History and manager", R.drawable.ic_paste),
         MenuEntry("quicktext", "Quick Text", "Shortcuts that insert messages", R.drawable.ic_quick),
-        MenuEntry("translate", "Zeta Translate", "Provider, history, privacy", R.drawable.ic_translate),
+        MenuEntry("translate", "Zeta Translate", "Choose the language", R.drawable.ic_translate),
+        MenuEntry("voice", "Voice Typing", "Language and microphone", R.drawable.ic_mic),
         MenuEntry("sticker", "Sticker Maker", "Photo to WhatsApp sticker", R.drawable.ic_sticker),
         MenuEntry("updates", "Updates", "Version and what's new", R.drawable.ic_download),
         MenuEntry("about", "About", "Owner and contact", R.drawable.ic_info)
@@ -820,6 +822,7 @@ class MainActivity : Activity() {
         put(clipSettingsCard(), "clipboard")
         put(quickTextCard(), "quicktext")
         put(translateCard(), "translate")
+        put(voiceCard(), "voice")
         put(updatesCard(), "updates")
         put(aboutCard(), "about")
         val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Dev", 12f, Pal.MUTED)
@@ -965,27 +968,102 @@ class MainActivity : Activity() {
         return e
     }
 
-    private fun translateCard(): View {
-        val c = card("Zeta Translate", "Tap the translate icon on the keyboard toolbar")
-        c.addView(tv("Provider", 15f, Color.WHITE).also { it.setPadding(0, dp(12), 0, dp(6)) })
-        val cur = if (Prefs.getS(this, "tr_provider", "mymemory") == "libre") 1 else 0
-        c.addView(segment(listOf("MyMemory (free)", "Custom server"), cur) {
-            Prefs.setS(this, "tr_provider", if (it == 1) "libre" else "mymemory")
-        })
-        c.addView(tv("MyMemory needs no key (about 5,000 characters/day, 450 per request). Add an email below to raise the daily limit. A custom server must be LibreTranslate-compatible and use HTTPS; text is sent only to the server you choose.", 12f, Pal.MUTED).also { it.setPadding(0, dp(8), 0, 0) })
-        c.addView(settingField("MyMemory email (optional)", "tr_email", false))
-        c.addView(settingField("Custom endpoint, e.g. https://libretranslate.example.com", "tr_url", false))
-        c.addView(settingField("Custom API key (optional)", "tr_key", true))
-        c.addView(switchRow("Save translation history", "Stored on this phone only, never uploaded", "tr_hist", true))
-        val wipe = pill("Delete translation history") {
-            TrHistory.clear(this)
-            Toast.makeText(this, "Translation history deleted", Toast.LENGTH_SHORT).show()
+    private var micRefresh: (() -> Unit)? = null
+
+    private fun voiceCard(): View {
+        val c = card("Voice Typing", "Tap the mic on the keyboard toolbar and speak")
+        c.addView(tv("Language", 15f, Color.WHITE).also { it.setPadding(0, dp(12), 0, dp(6)) })
+        val cur = when (Voice.mode(this)) {
+            Voice.SI -> 1
+            Voice.EN -> 2
+            else -> 0
         }
-        wipe.background = roundBg(Pal.BG, 30, Pal.STROKE, 1)
-        val wlp = LinearLayout.LayoutParams(MATCH, WRAP)
-        wlp.topMargin = dp(10)
-        c.addView(wipe, wlp)
+        c.addView(segment(listOf("Auto", "Sinhala", "English"), cur) {
+            Prefs.setS(this, "voice_lang", arrayOf(Voice.AUTO, Voice.SI, Voice.EN)[it])
+        })
+        c.addView(tv("Auto listens for Sinhala and English together. Which language it picks is decided by the Google speech service on your phone, so if it gets a sentence wrong, choose Sinhala or English here.", 12f, Pal.MUTED).also { it.setPadding(0, dp(10), 0, 0) })
+        c.addView(switchRow("Keep listening", "Carry on after each pause. Tap the message on the keyboard toolbar to stop.", "voice_cont", true))
+        c.addView(tv("Voice typing needs an internet connection. Your speech is handled by the Google speech service, not by Zeta Board, and nothing is saved. Password fields are never used.", 12f, Pal.MUTED).also { it.setPadding(0, dp(10), 0, 0) })
+        val status = tv("", 13f, Pal.MUTED, true)
+        status.setPadding(0, dp(14), 0, 0)
+        c.addView(status)
+        val allow = pill("Allow microphone") { startActivity(Intent(this, MicPermissionActivity::class.java)) }
+        val alp = LinearLayout.LayoutParams(MATCH, WRAP)
+        alp.topMargin = dp(10)
+        c.addView(allow, alp)
+        micRefresh = {
+            val avail = Voice.available(this)
+            val mic = Voice.hasMic(this)
+            status.text = when {
+                !avail -> "Speech recognition was not found. Install or enable the Google app."
+                mic -> "Microphone allowed"
+                else -> "Microphone is off"
+            }
+            status.setTextColor(if (avail && mic) Pal.GREEN else Pal.MUTED)
+            allow.visibility = if (mic) View.GONE else View.VISIBLE
+        }
+        micRefresh?.invoke()
         return c
+    }
+
+    private fun langLabel(l: Lang): String = l.name + "  \u00B7  " + l.native + "  \u25BE"
+
+    private fun translateCard(): View {
+        val c = card("Zeta Translate", "Type a message, select it, then tap the translate icon on the keyboard")
+        c.addView(tv("Translate to", 15f, Color.WHITE).also { it.setPadding(0, dp(12), 0, dp(6)) })
+        val btn = tv(langLabel(Langs.target(this)), 15f, Color.WHITE, true)
+        btn.setPadding(dp(16), dp(14), dp(16), dp(14))
+        btn.background = roundBg(Pal.BG, 16, Pal.STROKE, 1)
+        btn.setOnClickListener {
+            pickLanguage { l ->
+                Langs.setTarget(this, l)
+                btn.text = langLabel(l)
+            }
+        }
+        c.addView(btn, LinearLayout.LayoutParams(MATCH, WRAP))
+        c.addView(tv("The selected text is replaced by its translation. With nothing selected, the whole message is translated. The language you write in is detected automatically.", 12f, Pal.MUTED).also { it.setPadding(0, dp(12), 0, 0) })
+        c.addView(tv("Your text is sent to Google Translate (or MyMemory if Google cannot be reached) only when you tap the translate icon. Nothing is saved, and password fields are never translated. It needs an internet connection.", 12f, Pal.MUTED).also { it.setPadding(0, dp(8), 0, 0) })
+        return c
+    }
+
+    private fun pickLanguage(onPick: (Lang) -> Unit) {
+        val dlg = android.app.Dialog(this)
+        dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.VERTICAL
+        root.setPadding(dp(8), dp(16), dp(8), dp(12))
+        root.background = roundBg(Pal.CARD, 24, Pal.STROKE, 1)
+        val title = tv("Translate to", 17f, Color.WHITE, true)
+        title.setPadding(dp(12), 0, dp(12), dp(8))
+        root.addView(title)
+        val cur = Langs.target(this).code
+        val list = LinearLayout(this)
+        list.orientation = LinearLayout.VERTICAL
+        for (l in Langs.all) {
+            val sel = l.code == cur
+            val row = LinearLayout(this)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = Gravity.CENTER_VERTICAL
+            row.setPadding(dp(12), dp(12), dp(12), dp(12))
+            if (sel) row.background = roundBg(Pal.TILE, 14, Pal.CYAN, 1)
+            val name = tv(l.name, 15f, if (sel) Pal.CYAN else Color.WHITE, sel)
+            row.addView(name, LinearLayout.LayoutParams(0, WRAP, 1f))
+            row.addView(tv(l.native + if (sel) "  \u2713" else "", 13f, Pal.MUTED))
+            row.setOnClickListener {
+                dlg.dismiss()
+                onPick(l)
+            }
+            list.addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
+        }
+        val sv = ScrollView(this)
+        sv.addView(list)
+        root.addView(sv, LinearLayout.LayoutParams(MATCH, dp(380)))
+        dlg.setContentView(root)
+        dlg.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dlg.window?.setLayout((resources.displayMetrics.widthPixels * 0.92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        dlg.show()
+        val at = Langs.all.indexOfFirst { it.code == cur }
+        if (at > 3) sv.post { sv.scrollTo(0, (at - 2) * dp(48)) }
     }
 
     private fun clipSettingsCard(): View {

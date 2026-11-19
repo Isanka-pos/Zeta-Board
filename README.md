@@ -33,9 +33,18 @@
 
 ## Zeta Translate
 
-Tap the translate icon on the keyboard toolbar. Type or paste text, pick languages, tap Translate, then Insert translation.
+Type your message, select it, then tap the translate icon on the keyboard toolbar (or in the tool list). The selected text is replaced by its translation. With nothing selected, the whole message in the box is translated.
 
-Provider setup (Zeta Board app -> Zeta Translate):
-- Default: MyMemory (https://mymemory.translated.net). Free, no API key. About 5,000 characters/day per IP, 450 characters per request. Optionally enter an email to raise the daily limit.
-- Custom: any LibreTranslate-compatible server (self-hosting is free; hosted ones may need a paid key). Enter the HTTPS endpoint (without /translate) and an optional API key.
-- Text is sent only to the provider you selected. History is stored locally and can be turned off or deleted. Password and private fields are never translated.
+- Pick the language to translate into in the Zeta Board app -> Zeta Translate. The language you write in is detected automatically.
+- Progress and problems show on the toolbar while it works. Tap that message to cancel.
+- Text is sent to Google Translate's public web endpoint, or to MyMemory if Google cannot be reached, only when you tap the translate icon. Nothing is saved (no history, no keys). Password and private fields are never translated.
+- Up to 4,000 characters per tap. It needs an internet connection.
+
+
+## Voice typing
+
+Tap the mic icon on the keyboard toolbar and speak. Each finished phrase is typed into the box, and it keeps listening until you tap the message on the toolbar to stop. The mic replaces the Theme icon on the default toolbar; Theme is now in the tool list (and you can pin any tool to the top bar yourself).
+
+- Language is set in the Zeta Board app -> Voice Typing: Auto (Sinhala and English), Sinhala, or English. Auto lets the Google speech service switch between the two, so if it picks the wrong language, choose one language there.
+- The first time, Android asks for the microphone permission (tap "Allow microphone" in the app, or tap the mic and allow it).
+- Speech is handled by the Google speech service on the phone and needs an internet connection. Zeta Board saves nothing. Password and private fields never use voice typing.
