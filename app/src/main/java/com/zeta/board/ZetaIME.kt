@@ -122,6 +122,26 @@ class ZetaIME : InputMethodService() {
 
         override fun translateAllowed(): Boolean = !secure
 
+        override fun selectedText(): String? {
+            if (secure) return null
+            val ic = currentInputConnection ?: return null
+            return try {
+                ic.getSelectedText(0)?.toString()?.takeIf { it.isNotBlank() }
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        override fun replaceSelection(expected: String, text: String): Boolean {
+            if (secure || text.isEmpty()) return false
+            val ic = currentInputConnection ?: return false
+            return try {
+                if (ic.getSelectedText(0)?.toString() != expected) false else ic.commitText(text, 1)
+            } catch (e: Exception) {
+                false
+            }
+        }
+
         override fun insertTranslation(text: String): Boolean {
             if (secure || text.isEmpty()) return false
             val ic = currentInputConnection ?: return false
@@ -209,6 +229,7 @@ class ZetaIME : InputMethodService() {
         host?.closeStickers()
         host?.closeQuick()
         host?.closeTranslate()
+        Translator.cancel()
         super.onFinishInputView(finishingInput)
     }
 

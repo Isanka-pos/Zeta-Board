@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.view.View
+import android.widget.Toast
 import java.io.File
 import android.widget.LinearLayout
 
@@ -47,6 +48,12 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
         /** True when Translate may be used in the current field (false for password / private fields). */
         fun translateAllowed(): Boolean = true
+
+        /** The text currently selected in the focused field, or null when nothing (or nothing allowed) is selected. */
+        fun selectedText(): String? = null
+
+        /** Replaces the current selection with [text], only if the selection still equals [expected]. */
+        fun replaceSelection(expected: String, text: String): Boolean = false
     }
 
     val kv = KeyboardView(ctx)
@@ -125,6 +132,30 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     }
 
     // ---- zeta translate ----
+
+    /** Translate button: with selected text it translates and replaces the selection; otherwise it opens the panel. */
+    private fun translateAction() {
+        val sel = if (out.translateAllowed()) out.selectedText() else null
+        if (sel == null) {
+            openTranslate()
+            return
+        }
+        val langs = Translator.languages(context)
+        val from = Prefs.getS(context, "tr_from", "auto").let { if (it == "auto" || langs.any { l -> l.code == it }) it else "auto" }
+        val to = Prefs.getS(context, "tr_to", "en").let { if (langs.any { l -> l.code == it }) it else "en" }
+        Toast.makeText(context, "Translating\u2026", Toast.LENGTH_SHORT).show()
+        Translator.run(context, sel, from, to) { res, err ->
+            if (err != null) {
+                Toast.makeText(context, err.message ?: "Translation failed", Toast.LENGTH_LONG).show()
+            } else if (res != null) {
+                if (out.replaceSelection(sel, res.text)) {
+                    TrHistory.add(context, THistItem(System.currentTimeMillis(), sel, res.text, from, to))
+                } else {
+                    Toast.makeText(context, "Selection changed \u2014 nothing was replaced", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
 
     fun openTranslate() {
         if (translateOpen) return
@@ -348,7 +379,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.CLIPBOARD -> openClipboard()
             KeyboardView.STICKER -> openStickers()
             KeyboardView.QUICK -> openQuick()
-            KeyboardView.TRANSLATE -> openTranslate()
+            KeyboardView.TRANSLATE -> translateAction()
             KeyboardView.SETTINGS -> out.settings()
         }
     }

@@ -38,10 +38,7 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
 
-    private lateinit var kv: KeyboardView
-    private lateinit var host: KeyboardHost
     private var clearArmed = false
-    private lateinit var et: EditText
     private lateinit var col: LinearLayout
     private val steps = ArrayList<StepRow>()
     private val chips = ArrayList<ThemeChip>()
@@ -204,7 +201,6 @@ class MainActivity : Activity() {
                 val ok = KbBg.save(this, uri)
                 runOnUiThread {
                     if (ok) {
-                        kv.reload()
                         refreshThumb()
                     } else {
                         Toast.makeText(this, "Could not load that image", Toast.LENGTH_SHORT).show()
@@ -271,7 +267,6 @@ class MainActivity : Activity() {
                 lab.text = label + "  " + v + unit
                 if (fromUser) {
                     Prefs.setI(this@MainActivity, key, v)
-                    kv.reload()
                 }
             }
 
@@ -297,7 +292,6 @@ class MainActivity : Activity() {
             row.addView(ch, lp)
             ch.setOnClickListener {
                 Prefs.setI(this, "shape", i)
-                kv.reload()
                 shapeChips.forEachIndexed { j, x -> x.select(j == i) }
             }
         }
@@ -314,7 +308,6 @@ class MainActivity : Activity() {
         lp.topMargin = dp(14)
         c.addView(segment(listOf("Off", "Wave", "Border", "Both"), Prefs.getI(this, "rgb", 0)) {
             Prefs.setI(this, "rgb", it)
-            kv.reload()
         }, lp)
         c.addView(slider("Speed", "", 1, 10, "rgbspeed", 5))
         return c
@@ -352,7 +345,6 @@ class MainActivity : Activity() {
         }
         val remove = pill("Remove") {
             KbBg.clear(this)
-            kv.reload()
             refreshThumb()
         }
         remove.background = roundBg(Pal.BG, 30, Pal.STROKE, 1)
@@ -393,7 +385,6 @@ class MainActivity : Activity() {
             chipsT.add(Pair(i, t))
             t.setOnClickListener {
                 Prefs.setI(this, "textstyle", i)
-                kv.reload()
                 paint()
             }
         }
@@ -435,7 +426,6 @@ class MainActivity : Activity() {
             chipsF.add(t)
             t.setOnClickListener {
                 Prefs.setI(this, "keyfont", i)
-                kv.reload()
                 paint()
             }
         }
@@ -818,7 +808,6 @@ class MainActivity : Activity() {
         put(header(), "*")
         put(updateBannerView(), "*")
         put(setupCard(), "setup")
-        put(previewCard(), "setup", "look", "typing")
         put(themeCard(), "look")
         put(shapeCard(), "look")
         put(rgbCard(), "look")
@@ -888,7 +877,6 @@ class MainActivity : Activity() {
             row.addView(ch, lp)
             ch.setOnClickListener {
                 Prefs.setI(this, "theme", i)
-                kv.theme = Themes.get(i)
                 chips.forEachIndexed { j, x -> x.select(j == i) }
             }
         }
@@ -896,80 +884,6 @@ class MainActivity : Activity() {
         val lp = LinearLayout.LayoutParams(MATCH, WRAP)
         lp.topMargin = dp(14)
         c.addView(hs, lp)
-        return c
-    }
-
-    private fun previewCard(): View {
-        val c = card("Live preview", "Try the keyboard right here")
-        et = EditText(this)
-        et.hint = "Type something..."
-        et.setTextColor(Color.WHITE)
-        et.setHintTextColor(Pal.MUTED)
-        et.textSize = 15f
-        et.minHeight = dp(56)
-        et.gravity = Gravity.TOP or Gravity.START
-        et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-        et.showSoftInputOnFocus = false
-        et.setPadding(dp(14), dp(12), dp(14), dp(12))
-        et.background = roundBg(Pal.BG, 16, Pal.STROKE, 1)
-        val lp1 = LinearLayout.LayoutParams(MATCH, WRAP)
-        lp1.topMargin = dp(14)
-        c.addView(et, lp1)
-
-        host = KeyboardHost(this, object : KeyboardHost.Output {
-            override fun commit(s: String) {
-                val pos = et.selectionStart.coerceAtLeast(0)
-                et.text.insert(pos, s)
-            }
-
-            override fun del() {
-                val t = et.text
-                val pos = et.selectionStart.coerceAtLeast(0)
-                if (pos > 0) {
-                    val n = if (pos >= 2 && Character.isLowSurrogate(t[pos - 1]) && Character.isHighSurrogate(t[pos - 2])) 2 else 1
-                    t.delete(pos - n, pos)
-                }
-            }
-
-            override fun enter() {
-                et.text.insert(et.selectionStart.coerceAtLeast(0), "\n")
-            }
-
-            override fun cursor(dir: Int) {
-                val pos = et.selectionStart.coerceAtLeast(0)
-                if (dir < 0 && pos > 0) et.setSelection(pos - 1)
-                if (dir > 0 && pos < et.text.length) et.setSelection(pos + 1)
-            }
-
-            override fun settings() {}
-
-            override fun pickPhoto() {
-                startActivity(Intent(this@MainActivity, StickerActivity::class.java))
-            }
-
-            override fun shareSticker(f: File) {
-                try {
-                    val send = Intent(Intent.ACTION_SEND)
-                        .setType("image/webp")
-                        .putExtra(Intent.EXTRA_STREAM, StickerSender.uriFor(this@MainActivity, f))
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    startActivity(Intent.createChooser(send, "Send sticker"))
-                } catch (e: Exception) {
-                }
-            }
-        })
-        kv = host.kv
-        kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
-        val radius = dp(18).toFloat()
-        host.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                outline.setRoundRect(0, 0, view.width, view.height, radius)
-            }
-        }
-        host.clipToOutline = true
-        val lp2 = LinearLayout.LayoutParams(MATCH, WRAP)
-        lp2.topMargin = dp(12)
-        c.addView(host, lp2)
         return c
     }
 
@@ -990,7 +904,6 @@ class MainActivity : Activity() {
         sw.thumbTintList = ColorStateList.valueOf(Color.WHITE)
         sw.setOnCheckedChangeListener { _, v ->
             Prefs.setB(this, key, v)
-            kv.reload()
         }
         row.addView(sw)
         return row
@@ -1019,7 +932,6 @@ class MainActivity : Activity() {
                 label.text = "Keyboard height  $v%"
                 if (fromUser) {
                     Prefs.setI(this@MainActivity, "height", v)
-                    kv.reload()
                 }
             }
 

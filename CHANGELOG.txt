@@ -1,3 +1,4 @@
+- REMOVED: "Live preview" card (in-app test keyboard) from the app. The real keyboard and the Key preview pop-up setting are unchanged
 - NEW: Quick Text. Save messages as shortcuts (like .welcome) in the new Quick Text Manager (menu -> Quick Text), then tap the bolt icon on the keyboard toolbar to insert one with a single tap. Optional auto-expand: type a shortcut and press space. Never runs in password fields. Everything stays on your phone
 - NEW: Apple-style emoji in the keyboard emoji panel (iPhone look). Flags, families, skin tones, keycaps and hearts draw as one clean emoji; anything the Apple set cannot draw falls back to your phone's emoji, never broken pieces. Turn it on/off in Typing & Fonts -> Apple emoji style
 - NEW: Screenshot warning: on Android 14+ a warning banner slides in from the top and a notification appears the moment a screenshot is taken in the app. On older Android versions screenshots are blocked instead
