@@ -48,3 +48,18 @@ Tap the mic icon on the keyboard toolbar and speak. Each finished phrase is type
 - Language is set in the Zeta Board app -> Voice Typing: Auto (Sinhala and English), Sinhala, or English. Auto lets the Google speech service switch between the two, so if it picks the wrong language, choose one language there.
 - The first time, Android asks for the microphone permission (tap "Allow microphone" in the app, or tap the mic and allow it).
 - Speech is handled by the Google speech service on the phone and needs an internet connection. Zeta Board saves nothing. Password and private fields never use voice typing.
+
+## Instant update push (Firebase Cloud Messaging)
+
+When a new version is published, every install gets a notification within seconds. The 15-minute check still runs as a fallback.
+
+One-time setup:
+1. Firebase Console -> project `zeta-b4e7c` -> Project settings -> Your apps -> **Add app -> Android**. Package name: `com.zeta.board`. Download `google-services.json` and put it in the `app/` folder (next to `app/build.gradle.kts`).
+2. Firebase Console -> Project settings -> **Service accounts** -> *Generate new private key*. Open the downloaded JSON, copy ALL of it.
+3. GitHub repo -> Settings -> Secrets and variables -> Actions -> **New repository secret**: name `FIREBASE_SERVICE_ACCOUNT`, value = the JSON. Never put this file in the repo.
+4. Push to `main`. The workflow builds the APK, creates the release, then runs `.github/scripts/send_push.py`.
+
+Notes:
+- Add `[silent]` to a commit message to publish without notifying anyone.
+- Phones that still have an older build get the push feature after they install this version through the normal 15-minute update check.
+- Android does not deliver push to an app the user force-stopped; those phones fall back to the normal check.

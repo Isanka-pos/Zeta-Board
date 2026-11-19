@@ -3,6 +3,12 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Push notifications (Firebase Cloud Messaging) switch on when app/google-services.json is present.
+// Without that file the app still builds and works; it just uses the 15-minute update check only.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Set by GitHub Actions: every build gets a higher version than the previous one
 val verCode: Int = (project.findProperty("verCode") as String?)?.toIntOrNull() ?: 1
 // Sticker API key. Override from CI with -PstickerKey=... (GitHub secret STICKER_KEY) to keep it out of the repo.
@@ -58,4 +64,6 @@ android {
 
 dependencies {
     implementation("androidx.core:core:1.13.1")
+    implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
+    implementation("com.google.firebase:firebase-messaging")
 }

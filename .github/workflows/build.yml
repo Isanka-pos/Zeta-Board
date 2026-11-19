@@ -44,6 +44,15 @@ jobs:
               json.dump(data, f, ensure_ascii=False)
           PY
           gh release create "v$VC" ZetaBoard.apk update.json --title "Zeta Board 1.0.$VC" --notes-file CHANGELOG.txt --target "$GITHUB_SHA"
+      - name: Send push notification to all users
+        # add [silent] to the commit message to publish a version without notifying everyone
+        if: ${{ !contains(github.event.head_commit.message, '[silent]') }}
+        continue-on-error: true
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          pip install --quiet google-auth requests
+          python3 .github/scripts/send_push.py
       - uses: actions/upload-artifact@v4
         with:
           name: ZetaBoard-APK
