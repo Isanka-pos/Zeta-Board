@@ -1,12 +1,14 @@
 """Sends the "new version" push notification to every Zeta Board install (FCM topic "updates").
 
-Runs in GitHub Actions right after the release is published. Needs the repo secret FIREBASE_SERVICE_ACCOUNT
+Runs in GitHub Actions right after the release is published (update alert), or from the "Announce" workflow
+(--announce: a custom message such as "new feature coming"). Needs the repo secret FIREBASE_SERVICE_ACCOUNT
 (the full JSON of a Firebase service account key). Without it the script just skips, so builds never break.
 Use --dry-run to print the message without sending it.
 """
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -38,9 +40,36 @@ def build_message(update):
     }
 
 
+def build_announce():
+    """A custom message (not an update). Text comes from the Announce workflow inputs."""
+    title = os.environ.get("ANN_TITLE", "").strip()
+    text = os.environ.get("ANN_BODY", "").strip()
+    link = os.environ.get("ANN_URL", "").strip()
+    if not title or not text:
+        raise SystemExit("Announcement needs a title and a message.")
+    if link and not link.lower().startswith(("http://", "https://")):
+        raise SystemExit("Link must start with http:// or https://")
+    return {
+        "message": {
+            "topic": TOPIC,
+            "data": {
+                "type": "announce",
+                "id": str(int(time.time())),
+                "title": short(title, 200),
+                "body": short(text, 2500),
+                "url": link,
+            },
+            "android": {"priority": "HIGH", "ttl": "86400s"},
+        }
+    }
+
+
 def main():
-    with open("update.json", encoding="utf-8") as f:
-        body = build_message(json.load(f))
+    if "--announce" in sys.argv:
+        body = build_announce()
+    else:
+        with open("update.json", encoding="utf-8") as f:
+            body = build_message(json.load(f))
 
     if "--dry-run" in sys.argv:
         print(json.dumps(body, ensure_ascii=False, indent=2))

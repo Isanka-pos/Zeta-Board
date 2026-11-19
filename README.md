@@ -63,3 +63,6 @@ Notes:
 - Add `[silent]` to a commit message to publish without notifying anyone.
 - Phones that still have an older build get the push feature after they install this version through the normal 15-minute update check.
 - Android does not deliver push to an app the user force-stopped; those phones fall back to the normal check.
+
+## Announcements ("new feature coming")
+GitHub -> Actions -> **Send announcement** -> Run workflow. Fill in Title, Message and (optional) Link. Every install gets it as a notification; tapping opens the link, or the app when no link is given. Uses the same `FIREBASE_SERVICE_ACCOUNT` secret. Users can mute these separately from update alerts (channel "News & announcements"). Only phones already on this version or newer receive them.
