@@ -88,3 +88,6 @@ Keyboard tool list -> **Singlish** (or the Singlish card in the app, menu -> Typ
 A vowel after a consonant gives its sign (ka ක, kaa කා, ki කි, ke කෙ). A consonant followed by a consonant gets the hal sign (amma අම්මා). Consonant + r / y joins as rakaransaya / yansaya (kriyaa ක්‍රියා, vidyaa විද්‍යා). A word ending in `nawa` gets the long final vowel (yanawa යනවා).
 
 Notes: no automatic capital letter while Singlish is on (capitals pick special letters); words that start with a dot (Quick Text shortcuts) are typed as plain letters; it is rule based, not a dictionary, so some words need doubled vowels.
+
+## Play Protect warning when installing
+Android shows "Google Play Protect - App scan recommended" for any APK that is not from the Play Store and that Google has not seen before. It is not a sign that something is wrong. Tap **Scan app** (or More details -> Install without scanning) and then **Install**. This text is added to every GitHub release automatically (`.github/INSTALL_HELP.md`) and is shown in the in-app update dialog. The app cannot show it before the very first install, so send new users to the release page or share the text above. Publishing on the Play Store is the only way to make the message go away for everyone.

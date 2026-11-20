@@ -96,6 +96,16 @@ object UpdateDialog {
         warnLp.topMargin = dp(12)
         root.addView(warn, warnLp)
 
+        // heads-up about the Google Play Protect screen that Android shows for apps that are not from the Play Store
+        val pp = tv("\u2139  Android may show \"Play Protect: App scan recommended\". This is normal for apps outside the Play Store. Tap \"Scan app\" (or More details \u2192 Install without scanning), then Install.", 12f, Pal.CYAN, false)
+        pp.gravity = Gravity.CENTER
+        pp.setLineSpacing(0f, 1.15f)
+        pp.setPadding(dp(12), dp(8), dp(12), dp(8))
+        pp.background = shape(Color.TRANSPARENT, 12, Pal.CYAN, 1)
+        val ppLp = LinearLayout.LayoutParams(MATCH, WRAP)
+        ppLp.topMargin = dp(10)
+        root.addView(pp, ppLp)
+
         val notes = LinearLayout(a)
         notes.orientation = LinearLayout.VERTICAL
         notes.setPadding(dp(16), dp(14), dp(16), dp(14))
