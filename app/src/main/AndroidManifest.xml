@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.DETECT_SCREEN_CAPTURE" />
+    <!-- only Android 9 and older need this, to save into the gallery -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
     <queries>
         <intent>
@@ -64,6 +66,14 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:taskAffinity="" />
+
+        <activity
+            android:name=".StatusSetupActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden" />
 
         <activity
             android:name=".StickerMakerActivity"

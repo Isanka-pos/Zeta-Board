@@ -18,7 +18,7 @@ class TrSource(val text: String, val selection: Boolean, val problem: String? = 
  * Container used by the IME and by the in-app preview: the normal keyboard plus the clipboard panel.
  * All text goes through [Output], so both places behave the same.
  */
-class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, ToolsPanel.Callback {
+class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, ToolsPanel.Callback, StatusPanel.Callback {
 
     interface Output {
         fun commit(s: String)
@@ -54,6 +54,17 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         /** Opens the Quick Text Manager screen. */
         fun openQuickManager() {}
 
+        /** Opens the screen where the user picks a WhatsApp status folder (kind: "wa", "w4b" or "any"). */
+        fun openStatusSetup(kind: String) {}
+
+        /** Allows saving into the gallery on Android 9 and older. */
+        fun requestStoragePermission() {}
+
+        /** Puts a photo/video into the chat box, when the app accepts that file type. */
+        fun sendMedia(f: File, mime: String): Boolean = false
+
+        fun shareMedia(files: List<File>, mimes: List<String>) {}
+
         /** Voice typing: false in password / private fields. */
         fun voiceAllowed(): Boolean = true
 
@@ -79,16 +90,18 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private val stickers = StickerPanel(ctx, this)
     private val quick = QuickPanel(ctx, this)
     private val tools = ToolsPanel(ctx, this)
+    private val status = StatusPanel(ctx, this)
     private var panelOpen = false
     private var stickersOpen = false
     private var quickOpen = false
     private var toolsOpen = false
+    private var statusOpen = false
     private var typing = false
     /** After a suggestion was used the toolbar stays normal until the user types again (the message itself may end like a shortcut). */
     private var quickSuppress = false
     /** Tells the keyboard service when a private panel (clipboard / stickers) is open, so its window can block screenshots. */
     var onSecure: ((Boolean) -> Unit)? = null
-    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen || quickOpen) }
+    private fun syncSecure() { onSecure?.invoke(panelOpen || stickersOpen || quickOpen || statusOpen) }
     private val d = ctx.resources.displayMetrics.density
 
     init {
@@ -99,11 +112,13 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             stickers.applyTheme(it)
             quick.applyTheme(it)
             tools.applyTheme(it)
+            status.applyTheme(it)
         }
         panel.applyTheme(kv.theme)
         stickers.applyTheme(kv.theme)
         quick.applyTheme(kv.theme)
         tools.applyTheme(kv.theme)
+        status.applyTheme(kv.theme)
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(stickers, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         stickers.visibility = GONE
@@ -111,6 +126,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         quick.visibility = GONE
         addView(tools, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         tools.visibility = GONE
+        addView(status, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        status.visibility = GONE
         addView(kv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panel.visibility = GONE
     }
@@ -126,6 +143,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     fun openClipboard() {
         if (panelOpen) return
         closeTools()
+        closeStatus()
         closeQuick()
         panelOpen = true
         typing = false
@@ -154,6 +172,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openTools() {
         if (toolsOpen) return
+        closeStatus()
         closeClipboard()
         closeStickers()
         closeQuick()
@@ -333,6 +352,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     fun openQuick() {
         if (quickOpen) return
         closeTools()
+        closeStatus()
         closeClipboard()
         closeStickers()
         quickOpen = true
@@ -416,6 +436,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     fun openStickers() {
         if (stickersOpen) return
         closeTools()
+        closeStatus()
         closeClipboard()
         closeQuick()
         StickerHub.pendingShow = false
@@ -445,7 +466,70 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     /** Called every time the keyboard shows up: opens the sticker panel if a photo/sticker is waiting for it. */
     fun onStartInput() {
-        if (StickerHub.pendingShow) openStickers()
+        if (StatusHub.pendingShow) openStatus() else if (StickerHub.pendingShow) openStickers()
+    }
+
+    // ---- status saver ----
+
+    fun openStatus() {
+        StatusHub.pendingShow = false
+        if (statusOpen) {
+            status.reload()
+            return
+        }
+        closeTools()
+        closeClipboard()
+        closeStickers()
+        closeQuick()
+        statusOpen = true
+        typing = false
+        val lp = status.layoutParams as LayoutParams
+        lp.height = kv.preferredHeight()
+        status.layoutParams = lp
+        status.visibility = VISIBLE
+        status.alpha = 0f
+        status.translationY = 24f * d
+        status.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        kv.visibility = GONE
+        status.open()
+        syncSecure()
+    }
+
+    fun closeStatus() {
+        if (!statusOpen) return
+        statusOpen = false
+        status.animate().cancel()
+        status.close()
+        status.visibility = GONE
+        kv.visibility = VISIBLE
+        syncSecure()
+    }
+
+    override fun onStatusSetup(kind: String) {
+        StatusHub.pendingShow = true
+        out.openStatusSetup(kind)
+    }
+
+    override fun onStatusSend(f: File, mime: String) {
+        if (out.sendMedia(f, mime)) {
+            status.flash("Sent")
+        } else {
+            status.flash("This app can't take it directly \u2014 choose where to send")
+            out.shareMedia(listOf(f), listOf(mime))
+        }
+    }
+
+    override fun onStatusShare(files: List<File>, mimes: List<String>) {
+        out.shareMedia(files, mimes)
+    }
+
+    override fun onStatusNeedPermission() {
+        StatusHub.pendingShow = true
+        out.requestStoragePermission()
+    }
+
+    override fun onStatusClose() {
+        closeStatus()
     }
 
     override fun onPickPhoto() {
@@ -533,6 +617,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             }
             KeyboardView.CLIPBOARD -> openClipboard()
             KeyboardView.STICKER -> openStickers()
+            KeyboardView.STATUSES -> openStatus()
             KeyboardView.QUICK -> openQuick()
             KeyboardView.TRANSLATE -> translateAction()
             KeyboardView.VOICE -> voiceAction()

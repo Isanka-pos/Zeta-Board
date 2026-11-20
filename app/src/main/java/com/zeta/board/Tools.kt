@@ -29,7 +29,8 @@ object Tools {
     const val EMOJI = 6
     const val SETTINGS = 7
     const val VOICE = 8
-    const val COUNT = 9
+    const val STATUS = 9
+    const val COUNT = 10
 
     /** How many tools fit on the top bar (the tool list button always sits after them). */
     const val MAX_PINS = 5
@@ -38,9 +39,9 @@ object Tools {
 
     private val icons = intArrayOf(
         R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_quick, R.drawable.ic_translate,
-        R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_emoji, R.drawable.ic_tune, R.drawable.ic_mic
+        R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_emoji, R.drawable.ic_tune, R.drawable.ic_mic, R.drawable.ic_status
     )
-    private val names = arrayOf("Stickers", "Clipboard", "Quick Text", "Translate", "Theme", "Text style", "Emoji", "Settings", "Voice")
+    private val names = arrayOf("Stickers", "Clipboard", "Quick Text", "Translate", "Theme", "Text style", "Emoji", "Settings", "Voice", "Status Saver")
 
     fun icon(id: Int): Int = icons[id]
 

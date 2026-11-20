@@ -414,5 +414,15 @@ object StickerSender {
         return InputConnectionCompat.commitContent(ic, ei, info, flags, null)
     }
 
+    /** Photo or video (a saved status) straight into the chat box, when the app accepts that file type. */
+    fun sendMedia(c: Context, ic: InputConnection, ei: EditorInfo, f: File, mime: String): Boolean {
+        val types = EditorInfoCompat.getContentMimeTypes(ei)
+        if (types.isEmpty()) return false
+        if (!types.any { ClipDescription.compareMimeTypes(mime, it) }) return false
+        val info = InputContentInfoCompat(uriFor(c, f), ClipDescription("Status", arrayOf(mime)), null)
+        val flags = if (Build.VERSION.SDK_INT >= 25) InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION else 0
+        return InputConnectionCompat.commitContent(ic, ei, info, flags, null)
+    }
+
     fun uriFor(c: Context, f: File): Uri = FileProvider.getUriForFile(c, c.packageName + ".fileprovider", f)
 }

@@ -66,3 +66,7 @@ Notes:
 
 ## Announcements ("new feature coming")
 GitHub -> Actions -> **Send announcement** -> Run workflow. Fill in Title, Message and (optional) Link. Every install gets it as a notification; tapping opens the link, or the app when no link is given. Uses the same `FIREBASE_SERVICE_ACCOUNT` secret. Users can mute these separately from update alerts (channel "News & announcements"). Only phones already on this version or newer receive them.
+
+## Status Saver
+Keyboard tool list -> **Status Saver** (hold and drag it onto the top bar to pin it). Add the WhatsApp (or WhatsApp Business) status folder once through Android's folder picker, then tap statuses to select them and **Save** (gallery, folder "Zeta Board"), **Send** (into the chat box, falls back to the share sheet when the app does not accept media) or **Share**.
+Notes: only statuses already viewed in WhatsApp exist on the phone; saved files are never duplicated; the panel blocks screenshots like the clipboard panel.

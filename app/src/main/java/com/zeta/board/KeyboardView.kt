@@ -48,6 +48,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val STATUS = 12
         /** The mic (voice typing) was tapped. */
         const val VOICE = 13
+        /** The Status Saver tool was used. */
+        const val STATUSES = 14
         const val STATUS_BUSY = 0
         const val STATUS_INFO = 1
         const val STATUS_ERROR = 2
@@ -364,6 +366,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             }
             Tools.SETTINGS -> listener?.onAction(SETTINGS)
             Tools.VOICE -> listener?.onAction(VOICE)
+            Tools.STATUS -> listener?.onAction(STATUSES)
         }
         invalidate()
     }

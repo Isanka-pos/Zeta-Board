@@ -225,6 +225,49 @@ class ZetaIME : InputMethodService() {
             }
         }
 
+        override fun openStatusSetup(kind: String) {
+            try {
+                startActivity(
+                    Intent(this@ZetaIME, StatusSetupActivity::class.java).putExtra("kind", kind)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                )
+            } catch (e: Exception) {
+            }
+        }
+
+        override fun requestStoragePermission() = openStatusSetup("perm")
+
+        override fun sendMedia(f: File, mime: String): Boolean {
+            val ic = currentInputConnection ?: return false
+            val ei = currentInputEditorInfo ?: return false
+            return try {
+                StickerSender.sendMedia(this@ZetaIME, ic, ei, f, mime)
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        override fun shareMedia(files: List<File>, mimes: List<String>) {
+            try {
+                if (files.isEmpty()) return
+                val uris = ArrayList<Uri>()
+                for (f in files) uris.add(StickerSender.uriFor(this@ZetaIME, f))
+                val majors = mimes.map { it.substringBefore('/') }.toSet()
+                val type = if (uris.size == 1) mimes[0] else if (majors.size == 1) majors.first() + "/*" else "*/*"
+                val send = if (uris.size == 1) {
+                    Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris[0])
+                } else {
+                    Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                }
+                send.setType(type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                startActivity(
+                    Intent.createChooser(send, "Send status")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                )
+            } catch (e: Exception) {
+            }
+        }
+
         override fun pickPhoto() {
             startActivity(
                 Intent(this@ZetaIME, StickerActivity::class.java)
@@ -248,6 +291,7 @@ class ZetaIME : InputMethodService() {
         cm?.removePrimaryClipChangedListener(clipListener)
         host?.closeClipboard()
         host?.closeStickers()
+        host?.closeStatus()
         host?.closeQuick()
         host?.closeTools()
         host?.cancelWork()
@@ -290,6 +334,7 @@ class ZetaIME : InputMethodService() {
             ((info?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         h.closeClipboard()
         h.closeStickers()
+        h.closeStatus()
         h.closeQuick()
         if (!restarting) h.cancelWork()
         h.closeTools()
@@ -309,6 +354,7 @@ class ZetaIME : InputMethodService() {
     override fun onFinishInputView(finishingInput: Boolean) {
         host?.closeClipboard()
         host?.closeStickers()
+        host?.closeStatus()
         host?.closeQuick()
         host?.closeTools()
         host?.cancelWork()
