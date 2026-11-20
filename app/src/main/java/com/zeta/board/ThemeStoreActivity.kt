@@ -295,7 +295,7 @@ class ThemeStoreActivity : Activity() {
         for (t in tiles) {
             t.active = t.idx == cur
             t.owned = Themes.isInstalled(this, t.idx)
-            t.selected = t.idx == sel
+            t.chosen = t.idx == sel
             t.invalidate()
         }
         val th = Themes.get(sel)
@@ -423,7 +423,7 @@ class ThemeStoreActivity : Activity() {
         paintTabs()
         for (t in wpTiles) {
             t.applied = WallpaperStore.isActive(this, t.wp)
-            t.selected = t.wp.id == wpSelId
+            t.chosen = t.wp.id == wpSelId
             t.invalidate()
         }
         preview.set(Themes.get(Prefs.getI(this, "theme", 0)))
@@ -663,7 +663,7 @@ private class ThemePreview(ctx: Context) : View(ctx) {
 
 /** One theme in the grid: a small keyboard, its name, and a badge showing whether it is in use or still to be taken. */
 private class ThemeTile(ctx: Context, val idx: Int, val th: KbTheme) : View(ctx) {
-    var selected = false
+    var chosen = false
     var active = false
     var owned = true
 
@@ -711,7 +711,7 @@ private class ThemeTile(ctx: Context, val idx: Int, val th: KbTheme) : View(ctx)
 
         // outline: selected = bright ring, otherwise a faint edge
         p.style = Paint.Style.STROKE
-        if (selected) {
+        if (chosen) {
             p.strokeWidth = d * 2.5f
             p.color = Pal.CYAN
         } else {
@@ -743,7 +743,7 @@ private class ThemeTile(ctx: Context, val idx: Int, val th: KbTheme) : View(ctx)
 /** One wallpaper in the grid: its thumbnail (centre-cropped like the keyboard does), a name strip and a tick when it is in use. */
 private class WallpaperTile(ctx: Context, val wp: Wallpaper) : View(ctx) {
     var bmp: Bitmap? = null
-    var selected = false
+    var chosen = false
     var applied = false
 
     private val d = ctx.resources.displayMetrics.density
@@ -799,7 +799,7 @@ private class WallpaperTile(ctx: Context, val wp: Wallpaper) : View(ctx) {
 
         // outline: selected = bright ring, otherwise a faint edge
         p.style = Paint.Style.STROKE
-        if (selected) {
+        if (chosen) {
             p.strokeWidth = d * 2.5f
             p.color = Pal.CYAN
         } else {
