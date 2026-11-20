@@ -15,6 +15,12 @@ object KbBg {
 
     fun has(c: Context): Boolean = file(c).exists()
 
+    /** Changes whenever the background picture changes (the keyboard uses the same value to notice it). */
+    fun stamp(c: Context): Long {
+        val f = file(c)
+        return if (f.exists()) f.lastModified() + f.length() else 0L
+    }
+
     fun clear(c: Context) {
         file(c).delete()
     }
@@ -63,7 +69,13 @@ object KbBg {
                 m.postRotate(deg.toFloat())
                 bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
             }
-            FileOutputStream(file(c)).use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            // write to a temp file first, so the keyboard never sees a half-written picture
+            val tmp = File(c.filesDir, "kbbg.tmp")
+            val written = FileOutputStream(tmp).use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            if (!written || !tmp.renameTo(file(c))) {
+                tmp.delete()
+                return false
+            }
             return true
         } catch (e: Exception) {
             return false

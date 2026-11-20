@@ -42,6 +42,8 @@ class MainActivity : Activity() {
     private lateinit var col: LinearLayout
     private val steps = ArrayList<StepRow>()
     private val chips = ArrayList<ThemeChip>()
+    private val chipIdx = ArrayList<Int>()
+    private var themeRow: LinearLayout? = null
     private val shapeChips = ArrayList<ShapeChip>()
     private lateinit var thumb: ImageView
     private var splashDone = false
@@ -175,6 +177,7 @@ class MainActivity : Activity() {
         refreshClipStat()
         refreshQuickStat()
         refreshUpdateUi()
+        fillThemeRow()
         micRefresh?.invoke()
         fontPaint?.invoke()
         textPaint?.invoke()
@@ -557,6 +560,7 @@ class MainActivity : Activity() {
         MenuEntry("home", "Home", "Everything in one place", R.drawable.ic_home),
         MenuEntry("setup", "Setup", "Enable and select the keyboard", R.drawable.ic_keyboard),
         MenuEntry("look", "Appearance", "Themes, shapes, RGB, photo", R.drawable.ic_palette),
+        MenuEntry("themestore", "Theme Store", "Get more keyboard themes", R.drawable.ic_palette),
         MenuEntry("typing", "Typing & Fonts", "Text style, key font, feel", R.drawable.ic_font),
         MenuEntry("clipboard", "Clipboard", "History and manager", R.drawable.ic_paste),
         MenuEntry("quicktext", "Quick Text", "Shortcuts that insert messages", R.drawable.ic_quick),
@@ -571,6 +575,10 @@ class MainActivity : Activity() {
         sideMenu.close()
         if (id == "sticker") {
             startActivity(Intent(this, StickerMakerActivity::class.java))
+            return
+        }
+        if (id == "themestore") {
+            startActivity(Intent(this, ThemeStoreActivity::class.java))
             return
         }
         showGroup(id)
@@ -868,28 +876,44 @@ class MainActivity : Activity() {
     }
 
     private fun themeCard(): View {
-        val c = card("Themes", "Tap a theme to apply it live")
+        val c = card("Themes", "Tap a theme to apply it live. Get more in the Theme Store")
         val hs = HorizontalScrollView(this)
         hs.isHorizontalScrollBarEnabled = false
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
+        themeRow = row
+        fillThemeRow()
+        hs.addView(row)
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(14)
+        c.addView(hs, lp)
+        val lp2 = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp2.topMargin = dp(14)
+        c.addView(pill("Open Theme Store") {
+            startActivity(Intent(this, ThemeStoreActivity::class.java))
+        }, lp2)
+        return c
+    }
+
+    /** (Re)builds the row of themes the user owns. Runs again on resume so themes taken in the store show up. */
+    private fun fillThemeRow() {
+        val row = themeRow ?: return
+        row.removeAllViews()
+        chips.clear()
+        chipIdx.clear()
         val cur = Prefs.getI(this, "theme", 0)
-        Themes.all.forEachIndexed { i, t ->
-            val ch = ThemeChip(this, t, i == cur)
+        for (i in Themes.installed(this)) {
+            val ch = ThemeChip(this, Themes.get(i), i == cur)
             chips.add(ch)
+            chipIdx.add(i)
             val lp = LinearLayout.LayoutParams(dp(104), dp(128))
             lp.rightMargin = dp(10)
             row.addView(ch, lp)
             ch.setOnClickListener {
                 Prefs.setI(this, "theme", i)
-                chips.forEachIndexed { j, x -> x.select(j == i) }
+                chips.forEachIndexed { j, x -> x.select(chipIdx[j] == i) }
             }
         }
-        hs.addView(row)
-        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
-        lp.topMargin = dp(14)
-        c.addView(hs, lp)
-        return c
     }
 
     private fun switchRow(title: String, desc: String, key: String, def: Boolean): View {

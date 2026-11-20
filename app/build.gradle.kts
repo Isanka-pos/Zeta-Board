@@ -13,6 +13,10 @@ if (file("google-services.json").exists()) {
 val verCode: Int = (project.findProperty("verCode") as String?)?.toIntOrNull() ?: 1
 // Sticker API key. Override from CI with -PstickerKey=... (GitHub secret STICKER_KEY) to keep it out of the repo.
 val stickerKey: String = (project.findProperty("stickerKey") as String?)?.takeIf { it.isNotBlank() } ?: "wxa_f_26c1633298"
+// Wallpaper server address (the zeta-wallpaper-server you deploy). Must be https://.
+// Set it here, or from CI with -PwallpaperUrl=... (GitHub repository variable WALLPAPER_URL).
+val wallpaperUrl: String = ((project.findProperty("wallpaperUrl") as String?)?.takeIf { it.isNotBlank() } ?: "https://YOUR-WALLPAPER-SERVER.example.com")
+    .trim().trimEnd('/').replace("\"", "")
 val repo: String = (project.findProperty("githubRepo") as String?) ?: System.getenv("GITHUB_REPOSITORY") ?: ""
 
 android {
@@ -27,6 +31,7 @@ android {
         versionName = "1.0.$verCode"
         buildConfigField("String", "REPO", "\"$repo\"")
         buildConfigField("String", "STICKER_KEY", "\"$stickerKey\"")
+        buildConfigField("String", "WALLPAPER_URL", "\"$wallpaperUrl\"")
     }
 
     buildFeatures { buildConfig = true }

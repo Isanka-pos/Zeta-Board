@@ -350,7 +350,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             Tools.QUICK -> listener?.onAction(QUICK)
             Tools.TRANSLATE -> listener?.onAction(TRANSLATE)
             Tools.THEME -> {
-                val n = (Prefs.getI(context, "theme", 0) + 1) % Themes.all.size
+                val n = Themes.next(context)
                 Prefs.setI(context, "theme", n)
                 theme = Themes.get(n)
             }

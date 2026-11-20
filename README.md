@@ -4,6 +4,15 @@
 3. Download the artifact "ZetaBoard-APK", install the APK.
 4. Open the app -> Enable -> Select.
 
+## Wallpapers (Theme Store)
+
+The Theme Store has a **Wallpapers** tab. It lists pictures from your own wallpaper server (folder `zeta-wallpaper-server`, upload them from its `/admin` web page). Tap a wallpaper to preview it behind the keys, then **Apply**: it becomes the keyboard background, the same one **Choose photo** sets. **Reset** removes it. The list is saved on the phone, so it still opens offline.
+
+One-time setup:
+1. Deploy `zeta-wallpaper-server` (see its README) on an **https** address.
+2. GitHub repo -> Settings -> Secrets and variables -> Actions -> **Variables** -> New repository variable `WALLPAPER_URL` = your address (for example `https://wallpapers.yourdomain.com`). Or edit `wallpaperUrl` in `app/build.gradle.kts`.
+3. Push to `main` to build a new APK.
+
 ## Features
 - Clipboard Manager (open it from the app home screen, or the clipboard icon on the keyboard)
 - Update check every 15 minutes (background job + timer while the keyboard/app is running) and each time the keyboard opens (at most once every 4 minutes)
