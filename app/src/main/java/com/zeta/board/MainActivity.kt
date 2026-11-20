@@ -817,6 +817,7 @@ class MainActivity : Activity() {
         put(photoCard(), "look")
         put(textStyleCard(), "typing")
         put(keyFontCard(), "typing")
+        put(singlishCard(), "typing")
         put(typingCard(), "typing")
         put(clipManagerCard(), "clipboard")
         put(clipSettingsCard(), "clipboard")
@@ -911,6 +912,19 @@ class MainActivity : Activity() {
         }
         row.addView(sw)
         return row
+    }
+
+    private fun singlishCard(): View {
+        val c = card("Singlish typing", "Type in English letters, get Sinhala")
+        c.addView(switchRow("Singlish \u2192 \u0DC3\u0DD2\u0D82\u0DC4\u0DBD", "Type mama gedara yanawa and it becomes \u0DB8\u0DB8 \u0D9C\u0DD9\u0DAF\u0DBB \u0DBA\u0DB1\u0DC0\u0DCF. You can also switch it on and off from the keyboard tool list (Singlish) \u2014 pin it to the top bar for one-tap use.", "singlish", false))
+        c.addView(tv("Vowels:  a  aa  ae  aae  i  ii  u  uu  e  ee  ai  o  oo  au\n" +
+            "Long vowels are doubled: kaa, kii, koo.   Verbs: yanawa works as is.\n" +
+            "Capitals (use Shift):  T \u0DA8   D \u0DA9   N \u0DAB   L \u0DC5   S \u0DC2   K \u0D9B   J \u0DA3   G \u0D9D   C \u0DA1   P \u0DB5   B \u0DB7\n" +
+            "th \u0DAD   dh \u0DB0   t \u0DA7   d \u0DAF   sh \u0DC1   ng \u0D9F   mb \u0DB9   gn \u0DA5   jn \u0DA4\n" +
+            "x gives \u0D82 (sixhala = \u0DC3\u0DD2\u0D82\u0DC4\u0DBD),  H gives \u0D83\n" +
+            "kriyaa = \u0D9A\u0DCA\u200D\u0DBB\u0DD2\u0DBA\u0DCF,   vidyaa = \u0DC0\u0DD2\u0DAF\u0DCA\u200D\u0DBA\u0DCF", 12f, Pal.MUTED).also { it.setPadding(0, dp(10), 0, 0) })
+        c.addView(tv("Works offline. Nothing is saved or sent anywhere. Not used in password fields. While Singlish is on, the automatic capital letter at the start of a sentence is off, because capitals pick special Sinhala letters. Quick Text shortcuts that start with a dot (.welcome) are typed as normal letters, so they still work.", 12f, Pal.MUTED).also { it.setPadding(0, dp(10), 0, 0) })
+        return c
     }
 
     private fun typingCard(): View {

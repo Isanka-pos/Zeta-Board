@@ -74,6 +74,15 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         /** Voice typing: opens the screen that asks for the microphone permission. */
         fun requestMic() {}
 
+        /** Singlish typing: shows [text] in the field as underlined, still-changing text (an empty string removes it). */
+        fun setComposing(text: String) {}
+
+        /** Singlish typing: turns the underlined text into normal text. */
+        fun finishComposing() {}
+
+        /** Singlish typing: the [n] characters before the cursor, or null when there is no field. */
+        fun textBefore(n: Int): CharSequence? = null
+
         /** Zeta Translate: false in password / private fields. */
         fun translateAllowed(): Boolean = true
 
@@ -333,6 +342,58 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         voice.start()
     }
 
+    // ---- singlish typing ----
+
+    /** The roman letters typed so far for the word being written (shown in the field as Sinhala, still underlined). */
+    private val singBuf = StringBuilder()
+
+    /** True while a word that started with a dot (a Quick Text shortcut) is typed as plain letters. */
+    private var singRaw = false
+
+    /** True when typed letters should become Sinhala: switched on, a normal text field, and no panel is taking the keys. */
+    private fun singlishActive(): Boolean =
+        Prefs.getB(context, "singlish", false) && out.quickAllowed() && !routed()
+
+    /** Ends the word being written: the Sinhala stays in the field as normal text. */
+    fun flushSinglish() {
+        singRaw = false
+        if (singBuf.isEmpty()) return
+        singBuf.setLength(0)
+        out.finishComposing()
+    }
+
+    /** A new text field started (or the keyboard closed): forget the word, the old field is gone. */
+    fun resetSinglish() {
+        singBuf.setLength(0)
+        singRaw = false
+    }
+
+    /**
+     * The cursor or text changed. When the word we are writing is no longer right before the cursor (the user moved the
+     * cursor, or the app cleared the box after Send), forget it so the next letters start a fresh word.
+     */
+    fun onSelectionChanged() {
+        if (singBuf.isEmpty()) return
+        val exp = Singlish.convert(singBuf.toString())
+        val before = try {
+            out.textBefore(exp.length)?.toString()
+        } catch (e: Exception) {
+            null
+        }
+        if (before != exp) singBuf.setLength(0)
+    }
+
+    private fun singlishToggle() {
+        val on = !Prefs.getB(context, "singlish", false)
+        Prefs.setB(context, "singlish", on)
+        kv.onSinglishChanged()
+        if (on) {
+            showStatus("Singlish ON \u2014 type mama gedara yanawa", KeyboardView.STATUS_INFO, 2600)
+        } else {
+            showStatus("Singlish OFF", KeyboardView.STATUS_INFO, 1800)
+        }
+    }
+
     // ---- quick text ----
 
     /**
@@ -580,6 +641,21 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             return
         }
         quickSuppress = false
+        if (singlishActive()) {
+            val letter = s.length == 1 && Singlish.isLetter(s[0])
+            if (letter && (singRaw || (singBuf.isEmpty() && out.charBeforeCursor() == '.'))) {
+                // a word that starts with a dot is a Quick Text shortcut (.welcome): type it as plain letters
+                singRaw = true
+            } else if (letter) {
+                singBuf.append(s)
+                out.setComposing(Singlish.convert(singBuf.toString()))
+                refreshSuggestion()
+                return
+            } else {
+                flushSinglish()
+                singRaw = false
+            }
+        }
         // Quick Text: a typed delimiter right after a shortcut expands it (the IME decides if it is allowed)
         if (s.length == 1 && QuickText.isDelimiter(s[0]) && out.expand(s)) {
             refreshSuggestion()
@@ -591,6 +667,19 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     }
 
     override fun onAction(a: Int) {
+        if (a == KeyboardView.DEL && !routed() && singBuf.isNotEmpty()) {
+            // Singlish: remove the last typed letter and redraw the Sinhala
+            singBuf.setLength(singBuf.length - 1)
+            if (singBuf.isEmpty()) {
+                out.setComposing("")
+                out.finishComposing()
+            } else {
+                out.setComposing(Singlish.convert(singBuf.toString()))
+            }
+            refreshSuggestion()
+            return
+        }
+        if (a != KeyboardView.DEL && a != KeyboardView.STATUS) flushSinglish()
         when (a) {
             KeyboardView.DEL -> if (routed()) (if (quickOpen) quick.backspace() else panel.backspace()) else {
                 quickSuppress = false
@@ -621,6 +710,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.QUICK -> openQuick()
             KeyboardView.TRANSLATE -> translateAction()
             KeyboardView.VOICE -> voiceAction()
+            KeyboardView.SINGLISH -> singlishToggle()
             KeyboardView.STATUS -> if (voice.active) {
                 kv.setStatus("Finishing\u2026", KeyboardView.STATUS_BUSY, R.drawable.ic_mic)
                 voice.stop()

@@ -70,3 +70,21 @@ GitHub -> Actions -> **Send announcement** -> Run workflow. Fill in Title, Messa
 ## Status Saver
 Keyboard tool list -> **Status Saver** (hold and drag it onto the top bar to pin it). Add the WhatsApp (or WhatsApp Business) status folder once through Android's folder picker, then tap statuses to select them and **Save** (gallery, folder "Zeta Board"), **Send** (into the chat box, falls back to the share sheet when the app does not accept media) or **Share**.
 Notes: only statuses already viewed in WhatsApp exist on the phone; saved files are never duplicated; the panel blocks screenshots like the clipboard panel.
+
+## Singlish typing
+Keyboard tool list -> **Singlish** (or the Singlish card in the app, menu -> Typing & Fonts). Letters typed on the English layer become Sinhala as you type; the word stays underlined until you type a space, punctuation, Enter or move the cursor. Backspace removes one typed letter and redraws the word.
+
+| Type | Get | Type | Get |
+|---|---|---|---|
+| a aa ae aae | අ ආ ඇ ඈ | i ii u uu | ඉ ඊ උ ඌ |
+| e ee ai | එ ඒ ඓ | o oo au | ඔ ඕ ඖ |
+| k kh g gh | ක ඛ ග ඝ | ch / c, chh | ච ඡ |
+| j jh | ජ ඣ | t T d D | ට ඨ ද ඩ |
+| th Th dh Dh | ත ථ ධ ඪ | n N | න ණ |
+| p ph b bh m | ප ඵ බ භ ම | y r l L w | ය ර ල ළ ව |
+| s sh S | ස ශ ෂ | h f | හ ෆ |
+| ng mb gn jn | ඟ ඹ ඥ ඤ | x H | ං ඃ |
+
+A vowel after a consonant gives its sign (ka ක, kaa කා, ki කි, ke කෙ). A consonant followed by a consonant gets the hal sign (amma අම්මා). Consonant + r / y joins as rakaransaya / yansaya (kriyaa ක්‍රියා, vidyaa විද්‍යා). A word ending in `nawa` gets the long final vowel (yanawa යනවා).
+
+Notes: no automatic capital letter while Singlish is on (capitals pick special letters); words that start with a dot (Quick Text shortcuts) are typed as plain letters; it is rule based, not a dictionary, so some words need doubled vowels.

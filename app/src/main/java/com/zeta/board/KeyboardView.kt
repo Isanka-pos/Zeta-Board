@@ -50,6 +50,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val VOICE = 13
         /** The Status Saver tool was used. */
         const val STATUSES = 14
+        /** The Singlish typing tool was used (switches Singlish -> Sinhala typing on or off). */
+        const val SINGLISH = 15
         const val STATUS_BUSY = 0
         const val STATUS_INFO = 1
         const val STATUS_ERROR = 2
@@ -367,6 +369,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             Tools.SETTINGS -> listener?.onAction(SETTINGS)
             Tools.VOICE -> listener?.onAction(VOICE)
             Tools.STATUS -> listener?.onAction(STATUSES)
+            Tools.SINGLISH -> listener?.onAction(SINGLISH)
         }
         invalidate()
     }
@@ -396,10 +399,18 @@ class KeyboardView(ctx: Context) : View(ctx) {
         invalidate()
     }
 
+    private fun singlishOn(): Boolean = Prefs.getB(context, "singlish", false)
+
+    /** Singlish typing was switched on or off: capital letters are meaningful in Singlish, so no automatic capital. */
+    fun onSinglishChanged() {
+        if (singlishOn() && shift == 1) shift = 0
+        rebuild()
+    }
+
     fun startInput(l: Int, s: Int) {
         menuOpen = false
         layer = l
-        shift = s
+        shift = if (l == 0 && singlishOn()) 0 else s
         afterSentence = false
         rebuild()
     }
@@ -755,7 +766,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 p.alpha = 90
                 c.drawCircle(toolRects[i].centerX(), h / 2f, dp(18f), p)
             }
-            icon(c, if (i < pins.size) Tools.icon(pins[i]) else R.drawable.ic_menu, toolRects[i], t.text, dp(20f))
+            val lit = i < pins.size && pins[i] == Tools.SINGLISH && singlishOn()
+            icon(c, if (i < pins.size) Tools.icon(pins[i]) else R.drawable.ic_menu, toolRects[i], if (lit) t.accent else t.text, dp(20f))
         }
         if (layer == 4 && emojiPages > 1) {
             tp.textAlign = Paint.Align.RIGHT
@@ -892,7 +904,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.color = fg
         when {
             k.kind == K_SPACE -> {
-                label = if (layer == 3) "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD" else TextStyles.convert(textStyle, "ZETA BOARD")
+                label = if (layer == 3 || (layer == 0 && singlishOn())) "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD" else TextStyles.convert(textStyle, "ZETA BOARD")
                 tp.textSize = rh * 0.24f
                 tp.alpha = 140
             }
@@ -1159,7 +1171,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 listener?.onText(" ")
                 val auto = afterSentence
                 afterSentence = false
-                if (auto && layer == 0 && shift == 0) {
+                if (auto && layer == 0 && shift == 0 && !singlishOn()) {
                     shift = 1
                     rebuild()
                 }

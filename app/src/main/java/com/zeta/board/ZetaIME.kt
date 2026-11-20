@@ -173,6 +173,26 @@ class ZetaIME : InputMethodService() {
             }
         }
 
+        override fun setComposing(text: String) {
+            try {
+                currentInputConnection?.setComposingText(text, 1)
+            } catch (e: Exception) {
+            }
+        }
+
+        override fun finishComposing() {
+            try {
+                currentInputConnection?.finishComposingText()
+            } catch (e: Exception) {
+            }
+        }
+
+        override fun textBefore(n: Int): CharSequence? = try {
+            currentInputConnection?.getTextBeforeCursor(n, 0)
+        } catch (e: Exception) {
+            null
+        }
+
         override fun translateAllowed(): Boolean = !secure
 
         override fun translateSource(): TrSource? {
@@ -309,6 +329,7 @@ class ZetaIME : InputMethodService() {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         selStart = newSelStart
         selEnd = newSelEnd
+        host?.onSelectionChanged()
         host?.refreshSuggestion()
     }
 
@@ -332,6 +353,7 @@ class ZetaIME : InputMethodService() {
                 v == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) ||
             (cls == InputType.TYPE_CLASS_NUMBER && v == InputType.TYPE_NUMBER_VARIATION_PASSWORD) ||
             ((info?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
+        h.resetSinglish()
         h.closeClipboard()
         h.closeStickers()
         h.closeStatus()
@@ -352,6 +374,7 @@ class ZetaIME : InputMethodService() {
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        host?.flushSinglish()
         host?.closeClipboard()
         host?.closeStickers()
         host?.closeStatus()
