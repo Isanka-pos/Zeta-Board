@@ -1,0 +1,38 @@
+- NEW: Emoji Mix. Open the tool list and tap Emoji Mix (hold and drag it onto the top bar to pin it). Pick two emoji and Zeta Board shows how well they mix: a chemistry score, a verdict, a fused name and ready-made mixes (side by side, reversed, with plus, with heart, joined, sparkle, stacked). Tap a mix to insert it, or tap a related emoji. Needs an internet connection. Never inserts into password fields
+- NEW: Wallpapers in the Theme Store. Open Theme Store -> Wallpapers tab to browse wallpapers from the Zeta wallpaper server, tap one to preview it behind the keyboard, then Apply. It becomes your keyboard background (the same one "Choose photo" sets). Reset removes it. The list is saved on your phone so it still opens without internet
+- NEW: Theme Store. Menu -> Theme Store (or Appearance -> Open Theme Store): 42 new themes in 7 groups (Dark, Light, Colorful, Neon, Nature, Pastel, Amoled) with a live keyboard preview. Tap a theme to preview it, then Get & Apply. Themes you take show in Appearance and in the keyboard's Theme button, which now cycles only through your own themes. Remove a theme any time. Works offline
+- NEW: Singlish typing. Type in English letters and get Sinhala live (mama gedara yanawa = මම ගෙදර යනවා). Switch it on in the app (Typing & Fonts -> Singlish typing) or with the Singlish tool in the keyboard tool list (pin it to the top bar for one tap). Works offline, backspace removes one letter at a time, Shift gives the special letters (T ඨ, D ඩ, N ණ, L ළ, S ෂ), x gives ං. Never used in password fields
+- NEW: Status Saver. Open the tool list, tap Status Saver, add your WhatsApp status folder once, then select statuses and Save them to your gallery, Send them into the chat or Share them
+- NEW: Instant update alerts. As soon as a new version is published, a notification arrives right away (no more waiting for the 15-minute check)
+- NEW: Voice typing. Tap the mic on the toolbar and speak: Sinhala when you speak Sinhala, English when you speak English (Auto), or pick one language in the app (Voice Typing). Keeps listening after each pause; tap the message on the toolbar to stop. The mic takes the toolbar place of the Theme icon, which moves to the tool list
+- CHANGED: Zeta Translate was rebuilt. Type a message, select it and tap the translate icon: the selection is replaced by its translation (nothing selected = the whole message). Choose the language in the app (Zeta Translate). Progress and errors show on the toolbar. The old translate panel, history and server settings are gone
+- NEW: Tool list. The last icon on the keyboard toolbar opens a tool list (Stickers, Clipboard, Quick Text, Translate, Theme, Text style, Emoji, Settings) as round buttons. Tap one to use it. Touch and hold a tool, then drag it onto the top bar to pin it there; hold a pinned tool to reorder it, or drag it down into the list to take it off. "Reset" brings the default top bar back
+- NEW: Quick Text suggestion. Type a shortcut like .welcome and its message appears on the keyboard toolbar in place of the icons. Tap it to swap the shortcut for the message. The icons come back after you tap it, type a space or any other key, or the field is cleared (for example after Send). Never shown in password fields. Turn it off in Quick Text -> Suggestion on toolbar
+- REMOVED: "Live preview" card (in-app test keyboard) from the app. The real keyboard and the Key preview pop-up setting are unchanged
+- NEW: Quick Text. Save messages as shortcuts (like .welcome) in the new Quick Text Manager (menu -> Quick Text), then tap the bolt icon on the keyboard toolbar to insert one with a single tap. Optional auto-expand: type a shortcut and press space. Never runs in password fields. Everything stays on your phone
+- NEW: Apple-style emoji in the keyboard emoji panel (iPhone look). Flags, families, skin tones, keycaps and hearts draw as one clean emoji; anything the Apple set cannot draw falls back to your phone's emoji, never broken pieces. Turn it on/off in Typing & Fonts -> Apple emoji style
+- NEW: Screenshot warning: on Android 14+ a warning banner slides in from the top and a notification appears the moment a screenshot is taken in the app. On older Android versions screenshots are blocked instead
+- IMPROVED: Update alert: as soon as a new version is found, a heads-up notification drops down from the top of the screen with sound and vibration. Checks now run every 15 minutes and every time the keyboard opens
+- NEW: Menu button (three lines, top right of the app). Opens the category menu: Home, Setup, Appearance, Typing & Fonts, Clipboard, Sticker Maker, Updates, About. Each category shows only its own cards
+- NEW: Sticker Maker is now also inside the app (menu -> Sticker Maker): make a sticker from a photo or a copied image, see all stickers, send to WhatsApp, share or delete
+- NEW: Update warning: a notification, a warning banner at the top of the app and a red dot on the menu button tell you as soon as a new version is ready
+- NEW: After an update you get a "Zeta Board updated" notification and a "What's new" screen
+- Updates card: shows the current version, when the last check happened and a "Check for updates" button
+- FIXED: keyboard background was see-through (apps showed behind the keys) after pressing keys / popups
+- NEW Sticker Maker: tap the sticker icon on the keyboard toolbar, choose Photo (or copy an image and tap Clipboard) and a WhatsApp-ready 512x512 WebP sticker is created, saved in a history grid and sent with one tap (hold to delete). Also available as Share -> Zeta Sticker from the gallery.
+- New Zeta Board logo (app icon, splash, keyboard, notifications)
+- Clipboard Manager inside the app: search, copy, pin, edit, delete, add clips, clear recent, delete all
+- Update check now runs every 45 minutes and notifies you when a new version is ready
+- Fixed: update check crash on Android 8 / 8.1
+- Fixed: deleted clips no longer come back when the keyboard opens
+- Fixed: update dialog crash after rotating the phone, safer update download
+- Emoji panel rebuilt (iOS-style): 10 categories with emoji icons, Frequently Used, flags (incl. Sri Lanka), swipe left/right anywhere to change page and category
+- Emoji: hold a hand/person emoji for skin tones, unsupported emoji are hidden instead of showing empty boxes
+- Fixed: backspace now removes a whole emoji (flags, families, hearts, skin tones) in one tap, in apps and in the clipboard editor
+- Clipboard panel: empty-state text is now centered
+- New About card with a WhatsApp "Contact owner" button
+- Owner name: Isanka Dev (About card + footer)
+- Removed "Zeta Bold" (star-wrapping) preset
+- New TEXT STYLE panel (A icon on the keyboard toolbar, or the Text style card in the app): Bold, Bold Italic, Sans Italic, Sans Bold Italic, Script, Monospace, Circled, Squared, Small Caps, Canadian, Flags - typed letters convert live; key font can be switched from the same panel
+- Fixed: toolbar title "ZETA BOARD" was cut off / overlapped the clipboard icon (now fits, fixed font)
+- Zeta Translate: translate panel on the toolbar, local history, MyMemory or custom LibreTranslate provider

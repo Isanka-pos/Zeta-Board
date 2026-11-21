@@ -1,0 +1,31 @@
+name: Send announcement
+
+# GitHub -> Actions -> "Send announcement" -> Run workflow, fill in the boxes.
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "Title (e.g. New feature coming soon)"
+        required: true
+      message:
+        description: "Message"
+        required: true
+      link:
+        description: "Optional link to open when tapped (https://...). Empty = opens the app"
+        required: false
+        default: ""
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send to all users
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          ANN_TITLE: ${{ inputs.title }}
+          ANN_BODY: ${{ inputs.message }}
+          ANN_URL: ${{ inputs.link }}
+        run: |
+          pip install --quiet google-auth requests
+          python3 .github/scripts/send_push.py --announce

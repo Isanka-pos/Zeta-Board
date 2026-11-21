@@ -75,29 +75,6 @@ object WallpaperStore {
         Prefs.setS(c, KEY_ID, "")
     }
 
-    // ---------------------------------------------------------------- built-in wallpapers (packed inside the app)
-
-    private const val ASSET = "asset:"
-    private const val BUILTIN_COUNT = 14
-
-    /** Wallpapers shipped inside the APK (app/src/main/assets/wallpapers/zeta01.jpg ...). They work offline. */
-    fun builtin(): List<Wallpaper> {
-        val out = ArrayList<Wallpaper>()
-        for (n in 1..BUILTIN_COUNT) {
-            val file = String.format("zeta%02d.jpg", n)
-            out.add(Wallpaper("b_zeta" + String.format("%02d", n), "Zeta " + n, "Zeta", ASSET + "wallpapers/" + file, ASSET + "wallpapers/" + file, 0, 0, 0L))
-        }
-        return out
-    }
-
-    private fun isAsset(url: String) = url.startsWith(ASSET)
-
-    private fun copyAsset(app: Context, url: String, out: File) {
-        app.assets.open(url.removePrefix(ASSET)).use { input ->
-            FileOutputStream(out).use { os -> input.copyTo(os) }
-        }
-    }
-
     // ---------------------------------------------------------------- list
 
     /** onResult(items, fromSavedCopy, error). When the server cannot be reached the saved list is used if there is one. */
@@ -110,7 +87,7 @@ object WallpaperStore {
             var err: String? = null
             try {
                 val text = getText("$base/api/wallpapers")
-                items = builtin() + parse(text, base)
+                items = parse(text, base)
                 try {
                     writeCache(app, text)
                 } catch (e: Exception) {
@@ -122,13 +99,11 @@ object WallpaperStore {
                 try {
                     val f = cacheFile(app)
                     if (f.exists()) {
-                        items = builtin() + parse(f.readText(), base)
+                        items = parse(f.readText(), base)
                         cached = items.isNotEmpty()
-                    } else {
-                        items = builtin()
                     }
                 } catch (e2: Exception) {
-                    items = builtin()
+                    items = emptyList()
                     cached = false
                 }
             }
@@ -198,13 +173,6 @@ object WallpaperStore {
         pool.execute {
             var bmp: Bitmap? = null
             try {
-                if (isAsset(w.thumb)) {
-                    bmp = app.assets.open(w.thumb.removePrefix(ASSET)).use { BitmapFactory.decodeStream(it) }
-                    if (bmp != null) thumbCache.put(w.id, bmp)
-                    val ready = bmp
-                    main.post { onDone(ready) }
-                    return@execute
-                }
                 val dir = thumbDir(app)
                 if (!dir.exists()) dir.mkdirs()
                 val f = File(dir, w.id + ".img")
@@ -251,7 +219,7 @@ object WallpaperStore {
             var err: String? = null
             val tmp = File(app.cacheDir, "wp_" + w.id + ".tmp")
             try {
-                if (isAsset(w.full)) copyAsset(app, w.full, tmp) else download(w.full, tmp, 16L * 1024L * 1024L)
+                download(w.full, tmp, 16L * 1024L * 1024L)
                 if (!KbBg.save(app, Uri.fromFile(tmp))) throw IllegalStateException("The picture could not be read")
                 Prefs.setS(app, KEY_ID, w.id)
                 Prefs.setL(app, KEY_STAMP, KbBg.stamp(app))

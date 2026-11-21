@@ -50,7 +50,7 @@ class ThemeStoreActivity : Activity() {
     // wallpapers tab
     private val wpTab = "Wallpapers"
     private val wpTiles = ArrayList<WallpaperTile>()
-    private var wallpapers: List<Wallpaper> = WallpaperStore.builtin()
+    private var wallpapers: List<Wallpaper> = emptyList()
     private var wpSelId = ""
     private var wpLoading = false
     private var wpError: String? = null
@@ -358,6 +358,10 @@ class ThemeStoreActivity : Activity() {
     }
 
     private fun buildWallpaperGrid() {
+        if (!WallpaperStore.configured()) {
+            message("The wallpaper server is not set up in this build yet.", false)
+            return
+        }
         if (wallpapers.isEmpty()) {
             when {
                 wpLoading -> message("Loading wallpapers\u2026", false)
@@ -368,7 +372,7 @@ class ThemeStoreActivity : Activity() {
             return
         }
         if (wpError != null) {
-            val note = tv("Offline: online wallpapers could not be loaded", 12f, Pal.MUTED, false)
+            val note = tv("Offline: showing your saved list", 12f, Pal.MUTED, false)
             note.setPadding(dp(2), dp(4), 0, dp(8))
             grid.addView(note, LinearLayout.LayoutParams(MATCH, WRAP))
         }
