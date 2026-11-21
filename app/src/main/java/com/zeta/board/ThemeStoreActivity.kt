@@ -598,6 +598,8 @@ private class ThemePreview(ctx: Context) : View(ctx) {
             c.drawRect(rf, p)
         }
 
+        if (th.fx != 0) drawBinaryPreview(c, 0f, 0f, w, h, th.accent, d)
+
         val pad = d * 10f
         val g = d * 5f
         // toolbar strip with the theme name
@@ -685,6 +687,7 @@ private class ThemeTile(ctx: Context, val idx: Int, val th: KbTheme) : View(ctx)
         p.shader = LinearGradient(0f, 0f, 0f, h, th.bgTop, th.bgBottom, Shader.TileMode.CLAMP)
         c.drawRoundRect(rf, r, r, p)
         p.shader = null
+        if (th.fx != 0) drawBinaryPreview(c, rf.left + d * 4f, rf.top + d * 4f, rf.right - d * 4f, rf.bottom - d * 4f, th.accent, d)
 
         val gap = d * 3f
         val kw = (w - d * 20f - gap * 5f) / 6f

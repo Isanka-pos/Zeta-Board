@@ -76,6 +76,7 @@ object KbBg {
                 tmp.delete()
                 return false
             }
+            KbVideo.clear(c)
             return true
         } catch (e: Exception) {
             return false

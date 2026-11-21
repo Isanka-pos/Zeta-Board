@@ -2,6 +2,9 @@ package com.zeta.board
 
 import android.content.ClipboardManager
 import android.content.Intent
+import android.graphics.drawable.GradientDrawable
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.net.Uri
 import android.inputmethodservice.InputMethodService
 import android.text.InputType
@@ -13,6 +16,7 @@ import java.io.File
 class ZetaIME : InputMethodService() {
 
     private var host: KeyboardHost? = null
+    private var video: VideoBgView? = null
     private var secure = false
     private var expanding = false
     private var cm: ClipboardManager? = null
@@ -339,7 +343,22 @@ class ZetaIME : InputMethodService() {
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.onSecure = { on -> ScreenGuard.setSecure(window?.window, on && ScreenGuard.blocking(this)) }
         host = h
-        return h
+        // video background: a player view sits behind the keyboard; the frame shows the theme colours until the first video frame
+        val v = VideoBgView(this)
+        video = v
+        val frame = FrameLayout(this)
+        fun paintFrame(t: KbTheme) {
+            frame.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(t.bgTop, t.bgBottom))
+        }
+        paintFrame(h.kv.theme)
+        val prev = h.kv.onTheme
+        h.kv.onTheme = {
+            prev?.invoke(it)
+            paintFrame(it)
+        }
+        frame.addView(v, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        frame.addView(h, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return frame
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
@@ -364,6 +383,7 @@ class ZetaIME : InputMethodService() {
         h.closeTools()
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.kv.reload()
+        video?.sync()
         val layer = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) 1 else 0
         val cap = cls == InputType.TYPE_CLASS_TEXT && (t and InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) != 0
         h.kv.startInput(layer, if (cap) 1 else 0)
@@ -384,6 +404,7 @@ class ZetaIME : InputMethodService() {
         host?.closeMix()
         host?.closeTools()
         host?.cancelWork()
+        video?.pause()
         super.onFinishInputView(finishingInput)
     }
 

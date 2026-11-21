@@ -11,7 +11,9 @@ class KbTheme(
     val special: Int,
     val text: Int,
     val accent: Int,
-    val accentText: Int
+    val accentText: Int,
+    /** Live effect drawn behind the keys: 0 = none, 1 = falling binary code (hacker rain). */
+    val fx: Int = 0
 )
 
 /** A theme that lives in the Theme Store. [cat] is the store tab it is listed under. */
@@ -20,8 +22,8 @@ class StoreTheme(val cat: String, val theme: KbTheme)
 object Themes {
     private fun c(s: String) = Color.parseColor(s)
 
-    private fun t(n: String, top: String, bottom: String, key: String, sp: String, tx: String, ac: String, acTx: String) =
-        KbTheme(n, c(top), c(bottom), c(key), c(sp), c(tx), c(ac), c(acTx))
+    private fun t(n: String, top: String, bottom: String, key: String, sp: String, tx: String, ac: String, acTx: String, fx: Int = 0) =
+        KbTheme(n, c(top), c(bottom), c(key), c(sp), c(tx), c(ac), c(acTx), fx)
 
     /** The themes every user has from the start. */
     private val builtin: List<KbTheme> = listOf(
@@ -90,7 +92,14 @@ object Themes {
         StoreTheme("Amoled", t("Amoled Blue", "#000000", "#000000", "#0E1420", "#18202E", "#FFFFFF", "#3B82F6", "#FFFFFF")),
         StoreTheme("Amoled", t("Amoled Red", "#000000", "#000000", "#1A0B0B", "#2B1212", "#FFFFFF", "#EF4444", "#FFFFFF")),
         StoreTheme("Amoled", t("Amoled Purple", "#000000", "#000000", "#130B1F", "#1F1233", "#FFFFFF", "#A855F7", "#FFFFFF")),
-        StoreTheme("Amoled", t("Amoled Gold", "#000000", "#000000", "#17130A", "#261F0F", "#FFFFFF", "#FACC15", "#2B2000"))
+        StoreTheme("Amoled", t("Amoled Gold", "#000000", "#000000", "#17130A", "#261F0F", "#FFFFFF", "#FACC15", "#2B2000")),
+        // ---- Hacker (animated binary rain + typing banner) ----
+        StoreTheme("Hacker", t("Matrix", "#020C05", "#000000", "#0A1F0F", "#12331B", "#C8FFD6", "#00FF41", "#001A06", 1)),
+        StoreTheme("Hacker", t("Cyber Rain", "#00090E", "#000000", "#06171F", "#0B2A38", "#D6FBFF", "#00E5FF", "#00222A", 1)),
+        StoreTheme("Hacker", t("Blood Code", "#0E0204", "#000000", "#1A0508", "#2E0B10", "#FFD9DE", "#FF1744", "#FFFFFF", 1)),
+        StoreTheme("Hacker", t("Violet Code", "#09030F", "#000000", "#140824", "#230F3F", "#F1E6FF", "#C084FC", "#1A0833", 1)),
+        StoreTheme("Hacker", t("Amber Terminal", "#0C0800", "#000000", "#181000", "#2B1D00", "#FFE9B8", "#FFB000", "#2A1A00", 1)),
+        StoreTheme("Hacker", t("Neo Pink", "#0D0108", "#000000", "#1B0614", "#2E0A22", "#FFE0F6", "#FF2BD6", "#FFFFFF", 1))
     )
 
     /** Every theme: the built-in ones first, then the store ones. The saved "theme" number is a position in this list. */

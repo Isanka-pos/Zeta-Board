@@ -199,6 +199,10 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 78 && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            handleVideo(uri)
+        }
         if (requestCode == 77 && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
             Thread {
@@ -214,8 +218,23 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun handleVideo(uri: android.net.Uri) {
+        Toast.makeText(this, "Preparing video\u2026", Toast.LENGTH_SHORT).show()
+        Thread {
+            val err = KbVideo.save(this, uri)
+            runOnUiThread {
+                if (err == null) {
+                    refreshThumb()
+                    Toast.makeText(this, "Video background set. Open the keyboard to see it", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, err, Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     private fun refreshThumb() {
-        val b = if (KbBg.has(this)) KbBg.load(this, 4) else null
+        val b = if (KbVideo.has(this)) KbVideo.thumb(this) else if (KbBg.has(this)) KbBg.load(this, 4) else null
         thumb.setImageBitmap(b)
         thumbHint.visibility = if (b == null) View.VISIBLE else View.GONE
     }
@@ -318,7 +337,7 @@ class MainActivity : Activity() {
     }
 
     private fun photoCard(): View {
-        val c = card("Photo background", "Use any picture from your gallery")
+        val c = card("Photo / video background", "Use a picture or a video from your gallery. A short muted loop (10 to 30 seconds, up to 60 MB) works best")
         val frame = FrameLayout(this)
         frame.background = roundBg(Pal.BG, 16, Pal.STROKE, 1)
         val radius = dp(16).toFloat()
@@ -328,7 +347,7 @@ class MainActivity : Activity() {
             }
         }
         frame.clipToOutline = true
-        thumbHint = tv("No photo selected", 13f, Pal.MUTED)
+        thumbHint = tv("No photo or video selected", 13f, Pal.MUTED)
         thumbHint.gravity = Gravity.CENTER
         frame.addView(thumbHint, FrameLayout.LayoutParams(MATCH, MATCH))
         thumb = ImageView(this)
@@ -349,6 +368,7 @@ class MainActivity : Activity() {
         }
         val remove = pill("Remove") {
             KbBg.clear(this)
+            KbVideo.clear(this)
             refreshThumb()
         }
         remove.background = roundBg(Pal.BG, 30, Pal.STROKE, 1)
@@ -359,7 +379,16 @@ class MainActivity : Activity() {
         val rlp = LinearLayout.LayoutParams(MATCH, WRAP)
         rlp.topMargin = dp(14)
         c.addView(row, rlp)
-        c.addView(slider("Photo dim", "%", 0, 80, "bgdim", 35))
+        val chooseVideo = pill("Choose video") {
+            val i = Intent(Intent.ACTION_GET_CONTENT)
+            i.type = "video/*"
+            i.addCategory(Intent.CATEGORY_OPENABLE)
+            startActivityForResult(Intent.createChooser(i, "Select video"), 78)
+        }
+        val vlp = LinearLayout.LayoutParams(MATCH, WRAP)
+        vlp.topMargin = dp(10)
+        c.addView(chooseVideo, vlp)
+        c.addView(slider("Photo / video dim", "%", 0, 80, "bgdim", 35))
         return c
     }
 

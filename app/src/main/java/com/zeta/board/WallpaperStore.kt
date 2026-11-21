@@ -53,9 +53,27 @@ object WallpaperStore {
 
     // ---------------------------------------------------------------- settings
 
-    private fun baseUrl(): String = BuildConfig.WALLPAPER_URL.trim().trimEnd('/')
+    /**
+     * Where the online wallpapers are downloaded from:
+     *  1. your own wallpaper server, when an https address is set in app/build.gradle.kts (-PwallpaperUrl), else
+     *  2. the "wallpapers" folder of this app's GitHub repository (raw.githubusercontent.com). No server needed:
+     *     add a picture to that folder, list it in wallpapers.json, push, and every phone sees it.
+     */
+    private fun baseUrl(): String {
+        val u = BuildConfig.WALLPAPER_URL.trim().trimEnd('/')
+        if (u.startsWith("https://") && u.length > 12 && !u.contains("YOUR-WALLPAPER-SERVER")) return u
+        val repo = BuildConfig.REPO.trim()
+        if (repo.contains("/")) return GITHUB_RAW + repo + "/main/wallpapers"
+        return u
+    }
 
-    /** False until a real server address is set in app/build.gradle.kts (or passed as -PwallpaperUrl). */
+    private const val GITHUB_RAW = "https://raw.githubusercontent.com/"
+
+    /** The list lives at /api/wallpapers on a server, and in wallpapers.json on GitHub. */
+    private fun listUrl(base: String): String =
+        if (base.startsWith(GITHUB_RAW)) "$base/wallpapers.json" else "$base/api/wallpapers"
+
+    /** False when there is neither a server address nor a GitHub repo (a build made on a computer, not by GitHub Actions). */
     fun configured(): Boolean {
         val u = baseUrl()
         return u.startsWith("https://") && u.length > 12 && !u.contains("YOUR-WALLPAPER-SERVER")
@@ -109,7 +127,7 @@ object WallpaperStore {
             var cached = false
             var err: String? = null
             try {
-                val text = getText("$base/api/wallpapers")
+                val text = getText(listUrl(base))
                 items = builtin() + parse(text, base)
                 try {
                     writeCache(app, text)

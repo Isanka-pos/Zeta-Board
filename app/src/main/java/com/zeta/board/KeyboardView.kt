@@ -58,6 +58,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val STATUS_INFO = 1
         const val STATUS_ERROR = 2
         private const val TOOL_SUG = 99
+        private const val TOOL_BANNER = 98
+        private const val TOOL_SPD_DONE = 97
+        private const val TOOL_SPD_PLUS = 96
+        private const val TOOL_SPD_MINUS = 95
 
         private const val K_CHAR = 0
         private const val K_SHIFT = 1
@@ -131,6 +135,18 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private val srcR = Rect()
     private val dstR = Rect()
     private val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val fxRain = MatrixRain(dm)
+    private var videoOn = false
+    private var bannerSpeed = TypeBanner.SPEED_DEF
+    private var speedOpen = false
+    private val spdMinus = RectF()
+    private val spdPlus = RectF()
+    private val spdDone = RectF()
+    private val bannerRect = RectF()
+    private val speedClose = Runnable {
+        speedOpen = false
+        invalidate()
+    }
     private val rainbow = IntArray(7) { Color.HSVToColor(floatArrayOf(it * 60f, 0.9f, 1f)) }
 
     private val toolH: Float get() = dp(44f)
@@ -324,6 +340,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         // only offer styles this phone can really draw (no empty boxes)
         styleList = TextStyles.names.indices.filter { TextStyles.supported(it, tp) }
         if (textStyle !in styleList) textStyle = 0
+        videoOn = KbVideo.has(c)
+        bannerSpeed = Prefs.getI(c, "bannerspeed", TypeBanner.SPEED_DEF).coerceIn(TypeBanner.SPEED_MIN, TypeBanner.SPEED_MAX)
         val bf = KbBg.file(c)
         val stamp = if (bf.exists()) bf.lastModified() + bf.length() else 0L
         if (stamp != bgStamp) {
@@ -373,6 +391,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             Tools.STATUS -> listener?.onAction(STATUSES)
             Tools.SINGLISH -> listener?.onAction(SINGLISH)
             Tools.MIX -> listener?.onAction(MIX)
+            Tools.SPEED -> openSpeed()
         }
         invalidate()
     }
@@ -412,6 +431,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     fun startInput(l: Int, s: Int) {
         menuOpen = false
+        closeSpeed()
         layer = l
         shift = if (l == 0 && singlishOn()) 0 else s
         afterSentence = false
@@ -554,6 +574,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         layoutKeys()
         buildBg()
         sweep = SweepGradient(w / 2f, h / 2f, rainbow, null)
+        fxRain.resize(w, h)
     }
 
     // ---------- drawing ----------
@@ -587,7 +608,12 @@ class KeyboardView(ctx: Context) : View(ctx) {
         // states). A shader is multiplied by that alpha, which made the whole keyboard see-through.
         p.color = Color.BLACK
         p.alpha = 255
-        if (bs != null) {
+        if (videoOn) {
+            // the video plays behind this view: only darken it a little so the keys stay readable
+            p.shader = null
+            p.color = Color.argb(bgDim * 255 / 100, 0, 0, 0)
+            c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), p)
+        } else if (bs != null) {
             p.shader = null
             c.drawBitmap(bs, 0f, 0f, null)
             p.color = Color.argb(bgDim * 255 / 100, 0, 0, 0)
@@ -597,6 +623,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), p)
             p.shader = null
         }
+        if (t.fx != 0) fxRain.draw(c, t.accent)
         drawToolbar(c)
         for (row in rows) for (k in row) drawKey(c, k)
         if (layer == 4 && emojiEmpty && rows.size > 1) {
@@ -610,6 +637,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         if (menuOpen) drawMenu(c)
         if ((rgb and 2) != 0) drawBorder(c)
         if (rgb != 0 && isShown) postInvalidateOnAnimation()
+        else if ((t.fx != 0 || speedOpen) && isShown) postInvalidateDelayed(33)
     }
 
     private fun withA(color: Int, a: Int): Int = (color and 0x00FFFFFF) or (a shl 24)
@@ -713,6 +741,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
 
     private fun drawToolbar(c: Canvas) {
+        if (speedOpen) {
+            drawSpeedStrip(c)
+            return
+        }
         val st = statusMsg
         if (st != null) {
             drawStrip(c, st, if (statusKind == STATUS_ERROR) 0xFFE5484D.toInt() else theme.accent, statusIcon)
@@ -738,30 +770,34 @@ class KeyboardView(ctx: Context) : View(ctx) {
             val right = width - dp(6f) - (cnt - 1 - i) * tw
             toolRects[i].set(right - tw, 0f, right, h)
         }
-        val savedTf = tp.typeface
-        tp.typeface = brandTf
-        tp.textAlign = Paint.Align.LEFT
-        tp.letterSpacing = 0.1f
-        tp.color = t.text
-        tp.alpha = 200
-        val title = when (layer) {
-            4 -> Emojis.cats[emojiCat].name
-            5 -> "TEXT STYLE"
-            else -> "ZETA BOARD"
-        }
-        val pageW = if (layer == 4 && emojiPages > 1) dp(34f) else 0f
-        val tx = lx + s + dp(8f)
-        val maxW = toolRects[0].left - dp(6f) - pageW - tx
-        var ts = dp(12f)
-        tp.textSize = ts
-        while (tp.measureText(title) > maxW && ts > dp(8f)) {
-            ts -= dp(0.5f)
+        if (t.fx != 0 && layer != 4 && layer != 5) {
+            drawTypeBanner(c, lx + s + dp(8f), toolRects[0].left - dp(6f))
+        } else {
+            val savedTf = tp.typeface
+            tp.typeface = brandTf
+            tp.textAlign = Paint.Align.LEFT
+            tp.letterSpacing = 0.1f
+            tp.color = t.text
+            tp.alpha = 200
+            val title = when (layer) {
+                4 -> Emojis.cats[emojiCat].name
+                5 -> "TEXT STYLE"
+                else -> "ZETA BOARD"
+            }
+            val pageW = if (layer == 4 && emojiPages > 1) dp(34f) else 0f
+            val tx = lx + s + dp(8f)
+            val maxW = toolRects[0].left - dp(6f) - pageW - tx
+            var ts = dp(12f)
             tp.textSize = ts
+            while (tp.measureText(title) > maxW && ts > dp(8f)) {
+                ts -= dp(0.5f)
+                tp.textSize = ts
+            }
+            val n = tp.breakText(title, true, maxW.coerceAtLeast(1f), null)
+            c.drawText(title, 0, n.coerceAtLeast(0), tx, baseline(h / 2f), tp)
+            tp.letterSpacing = 0f
+            tp.typeface = savedTf
         }
-        val n = tp.breakText(title, true, maxW.coerceAtLeast(1f), null)
-        c.drawText(title, 0, n.coerceAtLeast(0), tx, baseline(h / 2f), tp)
-        tp.letterSpacing = 0f
-        tp.typeface = savedTf
 
         for (i in 0 until cnt) {
             if (pressedTool == i) {
@@ -779,6 +815,154 @@ class KeyboardView(ctx: Context) : View(ctx) {
             tp.alpha = 150
             c.drawText("${emojiPage + 1}/$emojiPages", toolRects[0].left - dp(6f), baseline(h / 2f), tp)
         }
+        tp.textAlign = Paint.Align.CENTER
+    }
+
+    // ---------- typing speed (hacker banner) ----------
+
+    /** Shows the speed strip on the toolbar: minus, the live typing banner, plus, the value and OK. Closes itself after a few seconds. */
+    fun openSpeed() {
+        menuOpen = false
+        speedOpen = true
+        handler.removeCallbacks(speedClose)
+        handler.postDelayed(speedClose, 8000)
+        invalidate()
+    }
+
+    fun closeSpeed() {
+        if (!speedOpen) return
+        speedOpen = false
+        handler.removeCallbacks(speedClose)
+        invalidate()
+    }
+
+    private fun setSpeed(v: Int) {
+        val n = v.coerceIn(TypeBanner.SPEED_MIN, TypeBanner.SPEED_MAX)
+        if (n != bannerSpeed) {
+            bannerSpeed = n
+            Prefs.setI(context, "bannerspeed", n)
+        }
+        handler.removeCallbacks(speedClose)
+        handler.postDelayed(speedClose, 8000)
+        invalidate()
+    }
+
+    private fun bannerHit(x: Float, y: Float): Boolean =
+        theme.fx != 0 && layer != 4 && layer != 5 && bannerRect.contains(x, y)
+
+    private fun speedHit(x: Float, y: Float): Int = when {
+        spdMinus.contains(x, y) -> TOOL_SPD_MINUS
+        spdPlus.contains(x, y) -> TOOL_SPD_PLUS
+        spdDone.contains(x, y) -> TOOL_SPD_DONE
+        else -> -1
+    }
+
+    private fun drawSpeedBtn(c: Canvas, r: RectF, label: String, down: Boolean, enabled: Boolean) {
+        val t = theme
+        p.shader = null
+        p.style = Paint.Style.FILL
+        p.color = t.accent
+        p.alpha = if (down) 130 else 55
+        c.drawRoundRect(r, dp(12f), dp(12f), p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = dp(1f)
+        p.alpha = 170
+        c.drawRoundRect(r, dp(12f), dp(12f), p)
+        p.style = Paint.Style.FILL
+        p.alpha = 255
+        tp.color = t.text
+        tp.alpha = if (enabled) 255 else 90
+        tp.textSize = dp(20f)
+        c.drawText(label, r.centerX(), baseline(r.centerY()), tp)
+    }
+
+    private fun drawSpeedStrip(c: Canvas) {
+        val t = theme
+        val h = toolH
+        val padX = dp(8f)
+        val bw = dp(36f)
+        val gap = dp(6f)
+        val top = dp(5f)
+        val bot = h - dp(4f)
+        spdMinus.set(padX, top, padX + bw, bot)
+        val pillL = spdMinus.right + gap
+        val pillR = pillL + dp(120f)
+        spdPlus.set(pillR + gap, top, pillR + gap + bw, bot)
+        spdDone.set(width - padX - dp(48f), top, width - padX, bot)
+
+        val savedTf = tp.typeface
+        tp.typeface = brandTf
+        tp.textAlign = Paint.Align.CENTER
+        tp.letterSpacing = 0f
+        drawSpeedBtn(c, spdMinus, "\u2212", pressedTool == TOOL_SPD_MINUS, bannerSpeed > TypeBanner.SPEED_MIN)
+        drawTypeBanner(c, pillL, pillR) // the real banner, typing at the speed being set
+        tp.typeface = brandTf
+        drawSpeedBtn(c, spdPlus, "+", pressedTool == TOOL_SPD_PLUS, bannerSpeed < TypeBanner.SPEED_MAX)
+
+        tp.textSize = dp(13f)
+        tp.color = t.text
+        tp.alpha = 255
+        val vx = (spdPlus.right + spdDone.left) / 2f
+        c.drawText("$bannerSpeed/${TypeBanner.SPEED_MAX}", vx, baseline(h / 2f), tp)
+
+        p.shader = null
+        p.style = Paint.Style.FILL
+        p.color = t.accent
+        p.alpha = if (pressedTool == TOOL_SPD_DONE) 200 else 255
+        c.drawRoundRect(spdDone, dp(12f), dp(12f), p)
+        p.alpha = 255
+        tp.textSize = dp(13f)
+        tp.color = t.accentText
+        c.drawText("OK", spdDone.centerX(), baseline(spdDone.centerY()), tp)
+        tp.typeface = savedTf
+        tp.textAlign = Paint.Align.CENTER
+    }
+
+    /** Hacker themes: a terminal pill on the toolbar that types, holds and deletes short lines with a blinking cursor. */
+    private fun drawTypeBanner(c: Canvas, left: Float, right: Float) {
+        val t = theme
+        val h = toolH
+        val savedTf = tp.typeface
+        tp.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        tp.textAlign = Paint.Align.LEFT
+        tp.letterSpacing = 0f
+        // size the text so the longest line always fits next to the toolbar icons
+        val avail = (right - left - dp(14f)).coerceAtLeast(dp(40f))
+        var ts = dp(12f)
+        tp.textSize = ts
+        while (tp.measureText(TypeBanner.WIDEST) > avail && ts > dp(7f)) {
+            ts -= dp(0.5f)
+            tp.textSize = ts
+        }
+        val textW = tp.measureText(TypeBanner.WIDEST)
+        val pillH = dp(26f)
+        rect.set(left, (h - pillH) / 2f, left + textW + dp(14f), (h + pillH) / 2f)
+        bannerRect.set(rect)
+        p.shader = null
+        p.style = Paint.Style.FILL
+        p.color = Color.argb(130, 0, 0, 0)
+        c.drawRoundRect(rect, dp(8f), dp(8f), p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = dp(1f)
+        p.color = withA(t.accent, 120)
+        c.drawRoundRect(rect, dp(8f), dp(8f), p)
+        p.style = Paint.Style.FILL
+
+        val now = SystemClock.uptimeMillis()
+        val f = TypeBanner.frame(now, bannerSpeed)
+        val tx = left + dp(7f)
+        tp.color = t.accent
+        tp.alpha = 255
+        c.drawText(f.text, tx, baseline(h / 2f), tp)
+        // block cursor: solid while typing, blinking while the line is held
+        if (f.typing || (now / 450L) % 2L == 0L) {
+            val cx = tx + tp.measureText(f.text) + dp(2f)
+            p.color = t.accent
+            p.alpha = 230
+            c.drawRect(cx, h / 2f - ts * 0.55f, cx + ts * 0.55f, h / 2f + ts * 0.55f, p)
+            p.alpha = 255
+        }
+        tp.typeface = savedTf
         tp.textAlign = Paint.Align.CENTER
     }
 
@@ -849,7 +1033,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             else -> t.special
         }
         if (!flat || isP) {
-            val photo = bgScaled != null
+            val photo = bgScaled != null || videoOn || t.fx != 0
             if (shape == 4) {
                 p.color = withA(bg, if (isP) 200 else 70)
                 drawShape(c, k.r, 0f, p)
@@ -863,7 +1047,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                     p.color = Color.argb(55, 0, 0, 0)
                     drawShape(c, k.r, dp(1.6f), p)
                 }
-                p.color = if (photo) withA(bg, 185) else bg
+                p.color = if (photo) withA(bg, if (t.fx != 0) 150 else 185) else bg
                 drawShape(c, k.r, 0f, p)
             }
             if ((rgb and 1) != 0) drawRgbKey(c, k, isP)
@@ -1036,7 +1220,14 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
         if (y < toolH) {
             pressed = null
-            pressedTool = if (stripOn()) TOOL_SUG else toolAt(x, y)
+            pressedTool = when {
+                speedOpen -> speedHit(x, y)
+                stripOn() -> TOOL_SUG
+                else -> {
+                    val ti = toolAt(x, y)
+                    if (ti >= 0) ti else if (bannerHit(x, y)) TOOL_BANNER else -1
+                }
+            }
             if (pressedTool >= 0) feedback()
             invalidate()
             return
@@ -1050,6 +1241,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
         pressed = k
         feedback()
+        if (theme.fx != 0) fxRain.burst(k.r.centerX())
         if (k.kind == K_DEL) {
             listener?.onAction(DEL)
             handler.postDelayed(repeat, 400)
@@ -1148,6 +1340,24 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
 
     private fun toolTap(i: Int) {
+        when (i) {
+            TOOL_SPD_MINUS -> {
+                setSpeed(bannerSpeed - 1)
+                return
+            }
+            TOOL_SPD_PLUS -> {
+                setSpeed(bannerSpeed + 1)
+                return
+            }
+            TOOL_SPD_DONE -> {
+                closeSpeed()
+                return
+            }
+            TOOL_BANNER -> {
+                openSpeed()
+                return
+            }
+        }
         if (i == TOOL_SUG) {
             if (statusMsg != null) listener?.onAction(STATUS) else if (suggestion != null) listener?.onAction(SUGGEST)
             invalidate()
