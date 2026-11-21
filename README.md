@@ -13,6 +13,15 @@ One-time setup:
 2. GitHub repo -> Settings -> Secrets and variables -> Actions -> **Variables** -> New repository variable `WALLPAPER_URL` = your address (for example `https://wallpapers.yourdomain.com`). Or edit `wallpaperUrl` in `app/build.gradle.kts`.
 3. Push to `main` to build a new APK.
 
+## Emoji Mix
+Keyboard tool list -> **Emoji Mix** (hold and drag it onto the top bar to pin it). Pick two emoji; the keyboard calls your Emoji Mix API (`/api/emoji/mix?a=..&b=..`) and shows the chemistry score, verdict, fused name and ready-made mixes. Tap one to insert it.
+
+One-time setup:
+1. GitHub repo -> Settings -> Secrets and variables -> Actions -> **New repository secret**: name `EMOJIMIX_KEY`, value = your API key (the `x-api-key` value).
+2. Push to `main` to build a new APK. Without the key the panel opens but shows "Emoji Mix is not set up yet".
+3. The API address defaults to `https://isanka-api.vercel.app`. To change it, pass `-PemojimixUrl=...` or edit `emojimixUrl` in `app/build.gradle.kts`.
+Note: the key is compiled into the APK, so anyone who unpacks the APK can read it. Keep rate limits on that key.
+
 ## Features
 - Clipboard Manager (open it from the app home screen, or the clipboard icon on the keyboard)
 - Update check every 15 minutes (background job + timer while the keyboard/app is running) and each time the keyboard opens (at most once every 4 minutes)

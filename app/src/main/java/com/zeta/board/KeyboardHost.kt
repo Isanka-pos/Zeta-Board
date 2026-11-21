@@ -18,7 +18,7 @@ class TrSource(val text: String, val selection: Boolean, val problem: String? = 
  * Container used by the IME and by the in-app preview: the normal keyboard plus the clipboard panel.
  * All text goes through [Output], so both places behave the same.
  */
-class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, ToolsPanel.Callback, StatusPanel.Callback {
+class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, ToolsPanel.Callback, StatusPanel.Callback, EmojiMixPanel.Callback {
 
     interface Output {
         fun commit(s: String)
@@ -100,11 +100,13 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private val quick = QuickPanel(ctx, this)
     private val tools = ToolsPanel(ctx, this)
     private val status = StatusPanel(ctx, this)
+    private val emojiMix = EmojiMixPanel(ctx, this)
     private var panelOpen = false
     private var stickersOpen = false
     private var quickOpen = false
     private var toolsOpen = false
     private var statusOpen = false
+    private var mixOpen = false
     private var typing = false
     /** After a suggestion was used the toolbar stays normal until the user types again (the message itself may end like a shortcut). */
     private var quickSuppress = false
@@ -122,12 +124,14 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             quick.applyTheme(it)
             tools.applyTheme(it)
             status.applyTheme(it)
+            emojiMix.applyTheme(it)
         }
         panel.applyTheme(kv.theme)
         stickers.applyTheme(kv.theme)
         quick.applyTheme(kv.theme)
         tools.applyTheme(kv.theme)
         status.applyTheme(kv.theme)
+        emojiMix.applyTheme(kv.theme)
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(stickers, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         stickers.visibility = GONE
@@ -137,6 +141,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         tools.visibility = GONE
         addView(status, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         status.visibility = GONE
+        addView(emojiMix, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        emojiMix.visibility = GONE
         addView(kv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         panel.visibility = GONE
     }
@@ -151,6 +157,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openClipboard() {
         if (panelOpen) return
+        closeMix()
         closeTools()
         closeStatus()
         closeQuick()
@@ -181,6 +188,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openTools() {
         if (toolsOpen) return
+        closeMix()
         closeStatus()
         closeClipboard()
         closeStickers()
@@ -402,7 +410,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
      */
     fun refreshSuggestion(reset: Boolean = false) {
         if (reset) quickSuppress = false
-        val m = if (quickSuppress || panelOpen || stickersOpen || quickOpen || toolsOpen) null else try {
+        val m = if (quickSuppress || panelOpen || stickersOpen || quickOpen || toolsOpen || mixOpen) null else try {
             out.quickSuggestion()
         } catch (e: Exception) {
             null
@@ -412,6 +420,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openQuick() {
         if (quickOpen) return
+        closeMix()
         closeTools()
         closeStatus()
         closeClipboard()
@@ -460,6 +469,50 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         applyHeights()
     }
 
+    // ---- emoji mix ----
+
+    fun openMix() {
+        if (mixOpen) return
+        closeTools()
+        closeStatus()
+        closeClipboard()
+        closeStickers()
+        closeQuick()
+        mixOpen = true
+        typing = false
+        val lp = emojiMix.layoutParams as LayoutParams
+        lp.height = kv.preferredHeight()
+        emojiMix.layoutParams = lp
+        emojiMix.open()
+        emojiMix.visibility = VISIBLE
+        emojiMix.alpha = 0f
+        emojiMix.translationY = 24f * d
+        emojiMix.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        kv.visibility = GONE
+        refreshSuggestion()
+    }
+
+    fun closeMix() {
+        if (!mixOpen) return
+        mixOpen = false
+        typing = false
+        emojiMix.animate().cancel()
+        emojiMix.close()
+        emojiMix.visibility = GONE
+        kv.visibility = VISIBLE
+        refreshSuggestion()
+    }
+
+    override fun onMixPick(text: String): Boolean {
+        if (!out.insertQuick(text)) return false
+        closeMix()
+        return true
+    }
+
+    override fun onMixClose() {
+        closeMix()
+    }
+
     // ---- sticker maker ----
 
     private val hubListener = object : StickerHub.Listener {
@@ -496,6 +549,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openStickers() {
         if (stickersOpen) return
+        closeMix()
         closeTools()
         closeStatus()
         closeClipboard()
@@ -538,6 +592,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             status.reload()
             return
         }
+        closeMix()
         closeTools()
         closeClipboard()
         closeStickers()
@@ -711,6 +766,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.TRANSLATE -> translateAction()
             KeyboardView.VOICE -> voiceAction()
             KeyboardView.SINGLISH -> singlishToggle()
+            KeyboardView.MIX -> openMix()
             KeyboardView.STATUS -> if (voice.active) {
                 kv.setStatus("Finishing\u2026", KeyboardView.STATUS_BUSY, R.drawable.ic_mic)
                 voice.stop()

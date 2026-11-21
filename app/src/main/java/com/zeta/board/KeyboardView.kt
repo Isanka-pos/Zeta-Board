@@ -52,6 +52,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val STATUSES = 14
         /** The Singlish typing tool was used (switches Singlish -> Sinhala typing on or off). */
         const val SINGLISH = 15
+        /** The Emoji Mix tool was used. */
+        const val MIX = 16
         const val STATUS_BUSY = 0
         const val STATUS_INFO = 1
         const val STATUS_ERROR = 2
@@ -370,6 +372,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             Tools.VOICE -> listener?.onAction(VOICE)
             Tools.STATUS -> listener?.onAction(STATUSES)
             Tools.SINGLISH -> listener?.onAction(SINGLISH)
+            Tools.MIX -> listener?.onAction(MIX)
         }
         invalidate()
     }

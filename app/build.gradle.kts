@@ -17,6 +17,10 @@ val stickerKey: String = (project.findProperty("stickerKey") as String?)?.takeIf
 // Set it here, or from CI with -PwallpaperUrl=... (GitHub repository variable WALLPAPER_URL).
 val wallpaperUrl: String = ((project.findProperty("wallpaperUrl") as String?)?.takeIf { it.isNotBlank() } ?: "https://YOUR-WALLPAPER-SERVER.example.com")
     .trim().trimEnd('/').replace("\"", "")
+// Emoji Mix API (your isanka-api). Key: set from CI with -PemojimixKey=... (GitHub secret EMOJIMIX_KEY).
+val emojimixKey: String = ((project.findProperty("emojimixKey") as String?) ?: "").trim().replace("\"", "")
+val emojimixUrl: String = ((project.findProperty("emojimixUrl") as String?)?.takeIf { it.isNotBlank() } ?: "https://isanka-api.vercel.app")
+    .trim().trimEnd('/').replace("\"", "")
 val repo: String = (project.findProperty("githubRepo") as String?) ?: System.getenv("GITHUB_REPOSITORY") ?: ""
 
 android {
@@ -32,6 +36,8 @@ android {
         buildConfigField("String", "REPO", "\"$repo\"")
         buildConfigField("String", "STICKER_KEY", "\"$stickerKey\"")
         buildConfigField("String", "WALLPAPER_URL", "\"$wallpaperUrl\"")
+        buildConfigField("String", "EMOJIMIX_KEY", "\"$emojimixKey\"")
+        buildConfigField("String", "EMOJIMIX_URL", "\"$emojimixUrl\"")
     }
 
     buildFeatures { buildConfig = true }
