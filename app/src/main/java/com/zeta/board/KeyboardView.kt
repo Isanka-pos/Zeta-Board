@@ -143,6 +143,11 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private val spdPlus = RectF()
     private val spdDone = RectF()
     private val bannerRect = RectF()
+    private val WS = Regex("\\s+")
+    private var bgGrad: LinearGradient? = null
+    private var bgGradH = 0
+    private var bgGradTop = 0
+    private var bgGradBot = 0
     private val speedClose = Runnable {
         speedOpen = false
         invalidate()
@@ -364,6 +369,14 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     /** Runs one tool, the same as tapping its icon on the toolbar. */
     fun runTool(id: Int) {
+        if (!RemoteCfg.toolOn(id)) {
+            // the owner paused this tool from Remote Config: say so on the toolbar for a moment
+            val m = RemoteCfg.offMessage()
+            menuOpen = false
+            setStatus(m, STATUS_INFO, R.drawable.ic_warning)
+            handler.postDelayed({ if (statusMsg == m) setStatus(null) }, 2500)
+            return
+        }
         when (id) {
             Tools.STICKER -> listener?.onAction(STICKER)
             Tools.CLIPBOARD -> listener?.onAction(CLIPBOARD)
@@ -400,7 +413,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     fun setSuggestion(msg: String?) {
         if (msg == suggestion) return
         suggestion = msg
-        sugFlat = msg?.replace(Regex("\\s+"), " ")?.trim() ?: ""
+        sugFlat = msg?.replace(WS, " ")?.trim() ?: ""
         if (msg != null && pressedTool in toolRects.indices) pressedTool = -1
         if (!stripOn() && pressedTool == TOOL_SUG) pressedTool = -1
         if (msg != null) menuOpen = false
@@ -619,7 +632,16 @@ class KeyboardView(ctx: Context) : View(ctx) {
             p.color = Color.argb(bgDim * 255 / 100, 0, 0, 0)
             c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), p)
         } else {
-            p.shader = LinearGradient(0f, 0f, 0f, height.toFloat(), t.bgTop, t.bgBottom, Shader.TileMode.CLAMP)
+            // cached: building a new LinearGradient every frame made the animated themes allocate constantly
+            var g = bgGrad
+            if (g == null || bgGradH != height || bgGradTop != t.bgTop || bgGradBot != t.bgBottom) {
+                g = LinearGradient(0f, 0f, 0f, height.toFloat(), t.bgTop, t.bgBottom, Shader.TileMode.CLAMP)
+                bgGrad = g
+                bgGradH = height
+                bgGradTop = t.bgTop
+                bgGradBot = t.bgBottom
+            }
+            p.shader = g
             c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), p)
             p.shader = null
         }
@@ -926,17 +948,21 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         tp.textAlign = Paint.Align.LEFT
         tp.letterSpacing = 0f
-        // size the text so the longest line always fits next to the toolbar icons
-        val avail = (right - left - dp(14f)).coerceAtLeast(dp(40f))
+        val padIn = dp(7f)
+        // the pill NEVER grows past the space between the logo and the toolbar icons
+        val maxPill = (right - left).coerceAtLeast(dp(48f))
+        val avail = (maxPill - padIn * 2f).coerceAtLeast(dp(28f))
+        // size the text so the longest line fits when there is room; never smaller than 9dp (readable)
         var ts = dp(12f)
         tp.textSize = ts
-        while (tp.measureText(TypeBanner.WIDEST) > avail && ts > dp(7f)) {
+        while (tp.measureText(TypeBanner.WIDEST) > avail && ts > dp(9f)) {
             ts -= dp(0.5f)
             tp.textSize = ts
         }
         val textW = tp.measureText(TypeBanner.WIDEST)
+        val pillW = minOf(textW + padIn * 2f, maxPill)
         val pillH = dp(26f)
-        rect.set(left, (h - pillH) / 2f, left + textW + dp(14f), (h + pillH) / 2f)
+        rect.set(left, (h - pillH) / 2f, left + pillW, (h + pillH) / 2f)
         bannerRect.set(rect)
         p.shader = null
         p.style = Paint.Style.FILL
@@ -950,18 +976,26 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
         val now = SystemClock.uptimeMillis()
         val f = TypeBanner.frame(now, bannerSpeed)
-        val tx = left + dp(7f)
+        val inner = pillW - padIn * 2f
+        val curW = ts * 0.55f
+        val full = tp.measureText(f.text)
+        // like a real terminal: if the line is wider than the pill, the start scrolls out and the cursor stays visible
+        val shift = (full + dp(2f) + curW - inner).coerceAtLeast(0f)
+        val tx = left + padIn - shift
+        val save = c.save()
+        c.clipRect(left + padIn, rect.top, left + pillW - padIn + 0.5f, rect.bottom)
         tp.color = t.accent
         tp.alpha = 255
         c.drawText(f.text, tx, baseline(h / 2f), tp)
         // block cursor: solid while typing, blinking while the line is held
         if (f.typing || (now / 450L) % 2L == 0L) {
-            val cx = tx + tp.measureText(f.text) + dp(2f)
+            val cx = tx + full + dp(2f)
             p.color = t.accent
             p.alpha = 230
-            c.drawRect(cx, h / 2f - ts * 0.55f, cx + ts * 0.55f, h / 2f + ts * 0.55f, p)
+            c.drawRect(cx, h / 2f - ts * 0.55f, cx + curW, h / 2f + ts * 0.55f, p)
             p.alpha = 255
         }
+        c.restoreToCount(save)
         tp.typeface = savedTf
         tp.textAlign = Paint.Align.CENTER
     }

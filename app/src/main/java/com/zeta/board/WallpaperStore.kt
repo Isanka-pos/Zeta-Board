@@ -60,7 +60,7 @@ object WallpaperStore {
      *     add a picture to that folder, list it in wallpapers.json, push, and every phone sees it.
      */
     private fun baseUrl(): String {
-        val u = BuildConfig.WALLPAPER_URL.trim().trimEnd('/')
+        val u = RemoteCfg.wallpaperUrl().trim().trimEnd('/')
         if (u.startsWith("https://") && u.length > 12 && !u.contains("YOUR-WALLPAPER-SERVER")) return u
         val repo = BuildConfig.REPO.trim()
         if (repo.contains("/")) return GITHUB_RAW + repo + "/main/wallpapers"

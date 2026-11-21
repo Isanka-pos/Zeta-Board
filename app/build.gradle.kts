@@ -7,6 +7,7 @@ plugins {
 // Without that file the app still builds and works; it just uses the 15-minute update check only.
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
 }
 
 // Set by GitHub Actions: every build gets a higher version than the previous one
@@ -77,4 +78,6 @@ dependencies {
     implementation("androidx.core:core:1.13.1")
     implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
     implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.firebase:firebase-crashlytics")
+    implementation("com.google.firebase:firebase-config")
 }

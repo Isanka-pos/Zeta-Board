@@ -67,6 +67,7 @@ class ZetaIME : InputMethodService() {
             return try {
                 StickerSender.send(this@ZetaIME, ic, ei, f)
             } catch (e: Exception) {
+                Crash.log("sendSticker", e)
                 false
             }
         }
@@ -106,6 +107,7 @@ class ZetaIME : InputMethodService() {
                 }
                 return true
             } catch (e: Exception) {
+                Crash.log("expand", e)
                 return false
             } finally {
                 expanding = false
@@ -238,6 +240,7 @@ class ZetaIME : InputMethodService() {
                     }
                 }
             } catch (e: Exception) {
+                Crash.log("applyTranslation", e)
                 false
             }
         }
@@ -267,6 +270,7 @@ class ZetaIME : InputMethodService() {
             return try {
                 StickerSender.sendMedia(this@ZetaIME, ic, ei, f, mime)
             } catch (e: Exception) {
+                Crash.log("sendMedia", e)
                 false
             }
         }
@@ -393,6 +397,7 @@ class ZetaIME : InputMethodService() {
         h.refreshSuggestion(true)
         captureClip(false)
         UpdateWatcher.checkSoon(this)
+        RemoteCfg.refresh {}
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {

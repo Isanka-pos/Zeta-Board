@@ -482,6 +482,13 @@ class MainActivity : Activity() {
         owner.gravity = Gravity.CENTER
         owner.setPadding(0, dp(8), 0, 0)
         c.addView(owner)
+        c.addView(switchRow("Send crash reports", "Helps fix bugs faster. Only the error details, phone model and Android version are sent. Never anything you type or copy.", Crash.PREF, true) { Crash.setEnabled(this, it) })
+        // hidden: long-press the owner line to send a test crash (reopen the app afterwards so it uploads)
+        owner.setOnLongClickListener {
+            Toast.makeText(this, "Crashing on purpose... reopen the app to send the report", Toast.LENGTH_LONG).show()
+            owner.postDelayed({ Crash.testCrash() }, 800)
+            true
+        }
 
         val btn = LinearLayout(this)
         btn.orientation = LinearLayout.HORIZONTAL
@@ -945,7 +952,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun switchRow(title: String, desc: String, key: String, def: Boolean): View {
+    private fun switchRow(title: String, desc: String, key: String, def: Boolean, onChange: ((Boolean) -> Unit)? = null): View {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
@@ -962,6 +969,7 @@ class MainActivity : Activity() {
         sw.thumbTintList = ColorStateList.valueOf(Color.WHITE)
         sw.setOnCheckedChangeListener { _, v ->
             Prefs.setB(this, key, v)
+            onChange?.invoke(v)
         }
         row.addView(sw)
         return row

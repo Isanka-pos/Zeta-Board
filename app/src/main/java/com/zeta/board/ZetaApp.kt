@@ -5,6 +5,8 @@ import android.app.Application
 class ZetaApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        Crash.init(this)
+        RemoteCfg.init(this)
         ScreenGuard.install(this)
         Push.subscribe(this)
         // the old translate panel kept a history and optional server settings; none of that exists any more, so wipe it

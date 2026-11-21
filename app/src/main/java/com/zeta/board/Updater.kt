@@ -190,6 +190,7 @@ object Updater {
                     onDone(out)
                 }
             } catch (e: Exception) {
+                if (e !is InterruptedException) Crash.log("updateDownload", e)
                 out.delete()
                 main.post { onDone(null) }
             }

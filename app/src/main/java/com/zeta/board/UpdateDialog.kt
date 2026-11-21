@@ -59,7 +59,9 @@ object UpdateDialog {
 
         val dialog = Dialog(a)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.setCancelable(true)
+        // the owner can set a minimum version in Remote Config: then this dialog cannot be dismissed
+        val force = RemoteCfg.mustUpdate(a)
+        dialog.setCancelable(!force)
 
         val root = LinearLayout(a)
         root.orientation = LinearLayout.VERTICAL
@@ -201,7 +203,7 @@ object UpdateDialog {
                 if (dialog.isShowing) {
                     task = null
                     update.alpha = 1f
-                    dialog.setCancelable(true)
+                    dialog.setCancelable(!force)
                     later.text = "Later"
                     if (f == null) {
                         progLabel.text = "Download failed"
@@ -217,6 +219,7 @@ object UpdateDialog {
             })
         }
 
+        if (force) later.visibility = View.GONE
         dialog.setContentView(root)
         ScreenGuard.secure(dialog.window)
         dialog.setOnDismissListener {

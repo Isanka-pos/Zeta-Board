@@ -135,7 +135,12 @@ class MatrixRain(private val dm: Float) {
 
 /** The typing banner on the toolbar of hacker themes: types a line, holds it, deletes it, next line. */
 object TypeBanner {
-    private val lines = arrayOf(
+    /** Lines from Remote Config (null = the built-in ones). */
+    @Volatile var custom: Array<String>? = null
+
+    private val lines: Array<String> get() = custom ?: defaultLines
+
+    private val defaultLines = arrayOf(
         "ZETA_BOARD",
         "wake_up_neo",
         "root@zeta",

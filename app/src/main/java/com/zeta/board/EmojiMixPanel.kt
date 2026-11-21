@@ -95,7 +95,7 @@ object EmojiMixApi {
     }
 
     private fun fetch(a: String, b: String): MixResult {
-        val base = BuildConfig.EMOJIMIX_URL.trimEnd('/')
+        val base = RemoteCfg.emojimixUrl()
         val url = base + "/api/emoji/mix?a=" + URLEncoder.encode(a, "UTF-8") + "&b=" + URLEncoder.encode(b, "UTF-8")
         val c = URL(url).openConnection() as HttpURLConnection
         try {
