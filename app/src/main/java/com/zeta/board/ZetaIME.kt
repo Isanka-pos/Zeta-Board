@@ -398,7 +398,26 @@ class ZetaIME : InputMethodService() {
         // video background: a player view sits behind the keyboard; the frame shows the theme colours until the first video frame
         val v = VideoBgView(this)
         video = v
-        val frame = FrameLayout(this)
+        // The keyboard decides the height. A plain FrameLayout would count the video view (match_parent) as well and
+        // grow to the whole screen, so the frame measures the keyboard first and then sizes the video to it.
+        val frame = object : FrameLayout(this) {
+            override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+                val kb = getChildAt(1)
+                val vid = getChildAt(0)
+                if (kb == null || vid == null) {
+                    super.onMeasure(widthSpec, heightSpec)
+                    return
+                }
+                measureChild(kb, widthSpec, heightSpec)
+                val w = resolveSize(kb.measuredWidth, widthSpec)
+                val hgt = resolveSize(kb.measuredHeight, heightSpec)
+                setMeasuredDimension(w, hgt)
+                vid.measure(
+                    View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(hgt, View.MeasureSpec.EXACTLY)
+                )
+            }
+        }
         fun paintFrame(t: KbTheme) {
             frame.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(t.bgTop, t.bgBottom))
         }
