@@ -18,7 +18,7 @@ class TrSource(val text: String, val selection: Boolean, val problem: String? = 
  * Container used by the IME and by the in-app preview: the normal keyboard plus the clipboard panel.
  * All text goes through [Output], so both places behave the same.
  */
-class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, ToolsPanel.Callback, StatusPanel.Callback, EmojiMixPanel.Callback {
+class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), KeyboardView.Listener, ClipPanel.Callback, StickerPanel.Callback, QuickPanel.Callback, ToolsPanel.Callback, TextEditorPanel.Callback, StatusPanel.Callback, EmojiMixPanel.Callback {
 
     interface Output {
         fun commit(s: String)
@@ -94,6 +94,12 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
         /** Zeta Translate: swaps exactly [src] for [translated]. False when the field changed in the meantime. */
         fun applyTranslation(src: TrSource, translated: String): Boolean = false
+
+        /** Text Editor: presses a cursor key ([code] is a KeyEvent key code); with [select] the selection grows. */
+        fun editorKey(code: Int, select: Boolean) {}
+
+        /** Text Editor: cut / copy / paste / select all (android.R.id.cut, copy, paste, selectAll). */
+        fun editorAction(id: Int) {}
     }
 
     val kv = KeyboardView(ctx)
@@ -102,12 +108,14 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private val stickers = StickerPanel(ctx, this)
     private val quick = QuickPanel(ctx, this)
     private val tools = ToolsPanel(ctx, this)
+    private val editor = TextEditorPanel(ctx, this)
     private val status = StatusPanel(ctx, this)
     private val emojiMix = EmojiMixPanel(ctx, this)
     private var panelOpen = false
     private var stickersOpen = false
     private var quickOpen = false
     private var toolsOpen = false
+    private var editorOpen = false
     private var statusOpen = false
     private var mixOpen = false
     private var typing = false
@@ -126,6 +134,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             stickers.applyTheme(it)
             quick.applyTheme(it)
             tools.applyTheme(it)
+            editor.applyTheme(it)
             status.applyTheme(it)
             emojiMix.applyTheme(it)
         }
@@ -133,6 +142,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         stickers.applyTheme(kv.theme)
         quick.applyTheme(kv.theme)
         tools.applyTheme(kv.theme)
+        editor.applyTheme(kv.theme)
         status.applyTheme(kv.theme)
         emojiMix.applyTheme(kv.theme)
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
@@ -142,6 +152,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         quick.visibility = GONE
         addView(tools, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         tools.visibility = GONE
+        addView(editor, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        editor.visibility = GONE
         addView(status, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         status.visibility = GONE
         addView(emojiMix, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
@@ -160,6 +172,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openClipboard() {
         if (panelOpen) return
+        closeEditor()
         closeMix()
         closeTools()
         closeStatus()
@@ -188,10 +201,54 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         refreshSuggestion()
     }
 
+    // ---- text editor ----
+
+    fun openEditor() {
+        if (editorOpen) return
+        closeMix()
+        closeStatus()
+        closeClipboard()
+        closeStickers()
+        closeQuick()
+        closeTools()
+        editorOpen = true
+        typing = false
+        val lp = editor.layoutParams as LayoutParams
+        lp.height = kv.preferredHeight()
+        editor.layoutParams = lp
+        editor.open()
+        editor.visibility = VISIBLE
+        editor.alpha = 0f
+        editor.translationY = 24f * d
+        editor.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        kv.visibility = GONE
+        refreshSuggestion()
+    }
+
+    fun closeEditor() {
+        if (!editorOpen) return
+        editorOpen = false
+        typing = false
+        editor.animate().cancel()
+        editor.close()
+        editor.visibility = GONE
+        kv.visibility = VISIBLE
+        refreshSuggestion()
+    }
+
+    override fun onEditorKey(code: Int, select: Boolean) = out.editorKey(code, select)
+
+    override fun onEditorAction(id: Int) = out.editorAction(id)
+
+    override fun onEditorDelete() = out.del()
+
+    override fun onEditorClose() = closeEditor()
+
     // ---- tool list ----
 
     fun openTools() {
         if (toolsOpen) return
+        closeEditor()
         closeMix()
         closeStatus()
         closeClipboard()
@@ -521,7 +578,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun refreshSuggestion(reset: Boolean = false) {
         if (reset) quickSuppress = false
-        val m = if (quickSuppress || panelOpen || stickersOpen || quickOpen || toolsOpen || mixOpen) null else try {
+        val m = if (quickSuppress || panelOpen || stickersOpen || quickOpen || toolsOpen || editorOpen || mixOpen) null else try {
             out.quickSuggestion()
         } catch (e: Exception) {
             null
@@ -531,6 +588,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openQuick() {
         if (quickOpen) return
+        closeEditor()
         closeMix()
         closeTools()
         closeStatus()
@@ -585,6 +643,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openMix() {
         if (mixOpen) return
+        closeEditor()
         closeTools()
         closeStatus()
         closeClipboard()
@@ -661,6 +720,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openStickers() {
         if (stickersOpen) return
+        closeEditor()
         closeMix()
         closeTools()
         closeStatus()
@@ -701,6 +761,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     fun openStatus() {
         StatusHub.pendingShow = false
+        closeEditor()
         if (statusOpen) {
             status.reload()
             return
@@ -908,6 +969,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.SINGLISH -> singlishToggle()
             KeyboardView.SINHALA -> sinhalaToggle()
             KeyboardView.LAYOUT -> sinhalaCycle()
+            KeyboardView.EDITOR -> openEditor()
             KeyboardView.MIX -> openMix()
             KeyboardView.STATUS -> if (voice.active) {
                 kv.setStatus("Finishing\u2026", KeyboardView.STATUS_BUSY, R.drawable.ic_mic)

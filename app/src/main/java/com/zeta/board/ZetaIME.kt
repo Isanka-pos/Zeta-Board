@@ -53,6 +53,28 @@ class ZetaIME : InputMethodService() {
             }
         }
 
+        override fun editorKey(code: Int, select: Boolean) {
+            val ic = currentInputConnection ?: return
+            try {
+                val now = android.os.SystemClock.uptimeMillis()
+                val meta = if (select) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
+                if (select) ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SHIFT_LEFT, 0, 0))
+                ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta))
+                ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta))
+                if (select) ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_SHIFT_LEFT, 0, 0))
+            } catch (e: Exception) {
+                Crash.log("editorKey", e)
+            }
+        }
+
+        override fun editorAction(id: Int) {
+            try {
+                currentInputConnection?.performContextMenuAction(id)
+            } catch (e: Exception) {
+                Crash.log("editorAction", e)
+            }
+        }
+
         override fun cursor(dir: Int) {
             sendDownUpKeyEvents(if (dir < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT)
         }
@@ -339,6 +361,7 @@ class ZetaIME : InputMethodService() {
         host?.closeQuick()
         host?.closeMix()
         host?.closeTools()
+        host?.closeEditor()
         host?.cancelWork()
         super.onDestroy()
     }
@@ -419,6 +442,7 @@ class ZetaIME : InputMethodService() {
         h.closeMix()
         if (!restarting) h.cancelWork()
         h.closeTools()
+        h.closeEditor()
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.kv.latinOnly = secure
         h.kv.reload()
@@ -444,6 +468,7 @@ class ZetaIME : InputMethodService() {
         host?.closeQuick()
         host?.closeMix()
         host?.closeTools()
+        host?.closeEditor()
         host?.cancelWork()
         video?.pause()
         super.onFinishInputView(finishingInput)

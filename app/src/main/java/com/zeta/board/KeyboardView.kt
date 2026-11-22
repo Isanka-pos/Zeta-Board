@@ -61,6 +61,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val SINHALA = 17
         /** The Layout tool was used: English -> phonetic -> Wijesekara. */
         const val LAYOUT = 18
+        /** The Text Editor tool was used. */
+        const val EDITOR = 19
         const val STATUS_BUSY = 0
         const val STATUS_INFO = 1
         const val STATUS_ERROR = 2
@@ -433,6 +435,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             Tools.STATUS -> listener?.onAction(STATUSES)
             Tools.SINGLISH -> listener?.onAction(SINGLISH)
             Tools.LAYOUT -> listener?.onAction(LAYOUT)
+            Tools.EDITOR -> listener?.onAction(EDITOR)
             Tools.MIX -> listener?.onAction(MIX)
             Tools.SPEED -> openSpeed()
         }
@@ -966,7 +969,26 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 c.drawCircle(toolRects[i].centerX(), h / 2f, dp(18f), p)
             }
             val lit = i < pins.size && ((pins[i] == Tools.SINGLISH && singlishOn()) || (pins[i] == Tools.LAYOUT && sinhalaOn()))
-            icon(c, if (i < pins.size) Tools.icon(pins[i]) else R.drawable.ic_menu, toolRects[i], if (lit) t.accent else t.text, dp(20f))
+            if (i < pins.size && pins[i] == Tools.LAYOUT) {
+                // the Layout tool is a word: sin (English keys), ph (phonetic) or wi (Wijesekara)
+                val savedSize = tp.textSize
+                val savedAlign = tp.textAlign
+                val savedColor = tp.color
+                val savedAlpha = tp.alpha
+                val savedTf = tp.typeface
+                tp.typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+                tp.textAlign = Paint.Align.CENTER
+                tp.textSize = dp(16f)
+                tp.color = if (lit) t.accent else t.text
+                c.drawText(Tools.layoutLabel(context), toolRects[i].centerX(), baseline(h / 2f), tp)
+                tp.textSize = savedSize
+                tp.textAlign = savedAlign
+                tp.color = savedColor
+                tp.alpha = savedAlpha
+                tp.typeface = savedTf
+            } else {
+                icon(c, if (i < pins.size) Tools.icon(pins[i]) else R.drawable.ic_menu, toolRects[i], if (lit) t.accent else t.text, dp(20f))
+            }
         }
         if (layer == 4 && emojiPages > 1) {
             tp.textAlign = Paint.Align.RIGHT

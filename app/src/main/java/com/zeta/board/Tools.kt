@@ -35,7 +35,9 @@ object Tools {
     const val SPEED = 12
     /** Sinhala typing layout: English -> phonetic -> Wijesekara. */
     const val LAYOUT = 13
-    const val COUNT = 14
+    /** Text Editor: arrow pad, select, cut / copy / paste, home / end, backspace. */
+    const val EDITOR = 14
+    const val COUNT = 15
 
     /** How many tools fit on the top bar (the tool list button always sits after them). */
     const val MAX_PINS = 5
@@ -44,11 +46,18 @@ object Tools {
 
     private val icons = intArrayOf(
         R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_quick, R.drawable.ic_translate,
-        R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_emoji, R.drawable.ic_tune, R.drawable.ic_mic, R.drawable.ic_status, R.drawable.ic_singlish, R.drawable.ic_mix, R.drawable.ic_speed, R.drawable.ic_layout
+        R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_emoji, R.drawable.ic_tune, R.drawable.ic_mic, R.drawable.ic_status, R.drawable.ic_singlish, R.drawable.ic_mix, R.drawable.ic_speed, R.drawable.ic_layout, R.drawable.ic_editor
     )
-    private val names = arrayOf("Stickers", "Clipboard", "Quick Text", "Translate", "Theme", "Text style", "Emoji", "Settings", "Voice", "Status Saver", "Singlish", "Emoji Mix", "Typing speed", "Layout")
+    private val names = arrayOf("Stickers", "Clipboard", "Quick Text", "Translate", "Theme", "Text style", "Emoji", "Settings", "Voice", "Status Saver", "Singlish", "Emoji Mix", "Typing speed", "Layout", "Text Editor")
 
     fun icon(id: Int): Int = icons[id]
+
+    /** The Layout tool shows a short word instead of a picture: sin (English keys), ph (phonetic) or wi (Wijesekara). */
+    fun layoutLabel(c: Context): String = when (SinMode.current(c)) {
+        SinMode.PHONETIC -> "ph"
+        SinMode.WIJESEKARA -> "wi"
+        else -> "sin"
+    }
 
     fun name(id: Int): String = names[id]
 
@@ -367,6 +376,27 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
 
     private fun drawable(res: Int): Drawable = icons.getOrPut(res) { context.getDrawable(res)!!.mutate() }
 
+    /** Draws a tool: the Layout tool is a word (sin / ph / wi), every other tool is its picture. */
+    private fun toolIcon(c: Canvas, id: Int, cx: Float, cy: Float, size: Float, color: Int, alpha: Int = 255) {
+        if (id != Tools.LAYOUT) {
+            icon(c, Tools.icon(id), cx, cy, size, color, alpha)
+            return
+        }
+        val saved = tp.textSize
+        val savedA = tp.textAlign
+        val savedC = tp.color
+        val savedTf = tp.typeface
+        tp.typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+        tp.textAlign = Paint.Align.CENTER
+        tp.textSize = size * 0.78f
+        tp.color = withA(color, alpha)
+        c.drawText(Tools.layoutLabel(context), cx, baseline(cy), tp)
+        tp.textSize = saved
+        tp.textAlign = savedA
+        tp.color = savedC
+        tp.typeface = savedTf
+    }
+
     private fun icon(c: Canvas, res: Int, cx: Float, cy: Float, size: Float, color: Int, alpha: Int = 255) {
         val d = drawable(res)
         d.setTint(color)
@@ -418,7 +448,7 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
                 val dim = dragging && dragPin == s
                 circle(c, cx, cy, r, t.text, if (dim) 14 else 36)
                 if (pressed && !dragging && tKind == PIN && tIdx == s) circle(c, cx, cy, r, t.accent, 90)
-                icon(c, Tools.icon(pins[s]), cx, cy, dp(20f), t.text, if (dim) 70 else 255)
+                toolIcon(c, pins[s], cx, cy, dp(20f), t.text, if (dim) 70 else 255)
             } else if (dragging) {
                 p.style = Paint.Style.STROKE
                 p.strokeWidth = dp(1.5f)
@@ -477,7 +507,7 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
             val dim = dragging && dragPin < 0 && dragId == i
             circle(c, cx, cy, r, t.text, if (dim) 12 else 30)
             if (pressed && !dragging && tKind == TILE && tIdx == i) circle(c, cx, cy, r, t.accent, 90)
-            icon(c, Tools.icon(i), cx, cy, r * 0.95f, t.text, if (dim) 70 else 255)
+            toolIcon(c, i, cx, cy, r * 0.95f, t.text, if (dim) 70 else 255)
             if (pins.contains(i)) circle(c, cx + r * 0.72f, cy - r * 0.72f, dp(4.5f), t.accent, 255)
             tp.color = withA(t.text, if (dim) 90 else 230)
             var label = Tools.name(i)
@@ -497,7 +527,7 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
         circle(c, gx + dp(2f), gy + dp(3f), r, Color.BLACK, 70)
         circle(c, gx, gy, r, t.bgBottom, 255)
         circle(c, gx, gy, r, t.accent, 150)
-        icon(c, Tools.icon(dragId), gx, gy, r * 0.95f, t.text)
+        toolIcon(c, dragId, gx, gy, r * 0.95f, t.text)
     }
 
     override fun onDetachedFromWindow() {
