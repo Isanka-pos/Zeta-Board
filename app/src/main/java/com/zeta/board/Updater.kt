@@ -139,17 +139,25 @@ object Updater {
     /** onResult(info, error): info != null when a newer version exists; error != null when the check failed. */
     fun check(c: Context, onResult: (Info?, String?) -> Unit) {
         val app = c.applicationContext
-        Thread {
-            var info: Info? = null
-            var err: String? = null
-            try {
-                val l = fetchLatest()
-                if (l.code > currentCode(app)) info = Info(l.code, l.name.ifBlank { "1.0." + l.code }, l.notes, l.apkUrl, l.sha256, l.patches)
-            } catch (e: Exception) {
-                err = e.message ?: e.javaClass.simpleName
-            }
-            main.post { onResult(info, err) }
-        }.start()
+        // get the owner's newest Remote Config first (instant when it was fetched less than 15 minutes ago), so new_updates_on is current
+        RemoteCfg.refresh {
+            Thread {
+                var info: Info? = null
+                var err: String? = null
+                try {
+                    val l = fetchLatest()
+                    if (l.code > currentCode(app)) {
+                        // new_updates_on = false: the owner is holding versions back, so nothing is offered (a forced min_version_code still is)
+                        if (RemoteCfg.newUpdatesOn() || RemoteCfg.mustUpdate(app)) {
+                            info = Info(l.code, l.name.ifBlank { "1.0." + l.code }, l.notes, l.apkUrl, l.sha256, l.patches)
+                        }
+                    }
+                } catch (e: Exception) {
+                    err = e.message ?: e.javaClass.simpleName
+                }
+                main.post { onResult(info, err) }
+            }.start()
+        }
     }
 
     /** The newest published release, newer than the installed one or not (null if it cannot be read). Used for the "what's new" notes. */

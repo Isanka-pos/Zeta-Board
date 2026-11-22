@@ -76,6 +76,10 @@ def main():
     with open("update.json", "w", encoding="utf-8") as f:
         json.dump(upd, f, ensure_ascii=False)
 
+    if os.environ.get("FULL_ONLY", "").lower() == "true":
+        print("full update only: no delta patches, phones download the whole APK")
+        return
+
     try:
         codes = previous_codes(vc)
     except Exception as e:

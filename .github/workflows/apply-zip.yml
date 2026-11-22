@@ -1,0 +1,65 @@
+name: Apply update zip
+
+# Easiest way to update: GitHub -> your repo -> updates/ folder -> Add file -> Upload files -> put the zip -> Commit.
+# This workflow unpacks the zip over the project (new files added, same-name files replaced, nothing else deleted),
+# removes the zip, and then starts "Build Zeta Board APK" which releases the update.
+# Works with a changed-files-only zip and with a full project zip.
+on:
+  push:
+    branches: [main, master]
+    paths: ['updates/*.zip']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: apply-zip
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack zip(s) over the project
+        run: |
+          shopt -s nullglob
+          ZIPS=(updates/*.zip)
+          if [ ${#ZIPS[@]} -eq 0 ]; then echo "No zip in updates/ - nothing to do"; exit 0; fi
+          for z in "${ZIPS[@]}"; do
+            echo "Applying $z"
+            rm -rf /tmp/unz && mkdir /tmp/unz
+            unzip -q -o "$z" -d /tmp/unz
+            rm -rf /tmp/unz/__MACOSX
+            find /tmp/unz -name '.DS_Store' -delete
+            find /tmp/unz -name '__pycache__' -type d -prune -exec rm -rf {} +
+            SRC=/tmp/unz
+            # zip made from GitHub's "Download ZIP" has one wrapper folder (Zeta-Board-main/): go inside it
+            if [ "$(ls -A /tmp/unz | wc -l)" -eq 1 ]; then
+              ONLY="$(ls -A /tmp/unz)"
+              case "$ONLY" in
+                app|wallpapers|.github|gradle|updates) ;;
+                *) [ -d "/tmp/unz/$ONLY" ] && SRC="/tmp/unz/$ONLY" ;;
+              esac
+            fi
+            rm -rf "$SRC/updates" "$SRC/.git"
+            cp -a "$SRC"/. .
+            git rm -q -f "$z"
+          done
+      - name: Commit and start the release build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing changed"
+          else
+            git commit -q -m "Apply update zip"
+            git push
+          fi
+          # a push made by this workflow does not start other workflows, so start the build directly
+          gh workflow run build.yml --ref "${{ github.ref_name }}"

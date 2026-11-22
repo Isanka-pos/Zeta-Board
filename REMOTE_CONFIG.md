@@ -19,6 +19,7 @@ Change these without releasing a new APK. After **Publish changes**, phones pick
 | `emojimix_url` | String | empty | Emoji Mix API address (https only). Empty = the one built into the app |
 | `wallpaper_url` | String | empty | Wallpaper server address (https only). Empty = the built-in one / GitHub folder |
 | `update_alerts_on` | Boolean | `true` | `false` stops the "Update available" notification (from the 15-minute check and from the instant push) on every phone that has this version or newer. The in-app banner, the Updates card and `min_version_code` still work. Set back to `true` and phones that were not told yet get the notification for the version that is waiting |
+| `new_updates_on` | Boolean | `true` | **Release switch for new versions.** `false` = hold back: you can keep pushing to GitHub (every push still builds and publishes a release) but no phone is told about any of them (no dialog, banner or notification). Set it to `true` and **Publish changes**: every phone sees the newest version (everything you pushed meanwhile, in one go) and downloads it. `min_version_code` still forces an update even while this is `false`. Needs a build with this feature already installed |
 | `perf_on` | Boolean | `true` | `false` switches Firebase Performance monitoring off for everyone |
 | `banner_lines` | String | empty | Hacker-theme typing banner lines, comma separated, e.g. `ZETA_BOARD,wake_up_neo,root@zeta`. Letters, digits and `_ @ . -` only, 11 characters each, up to 12 lines. Empty = built-in lines |
 

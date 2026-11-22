@@ -3,7 +3,18 @@ name: Build Zeta Board APK
 on:
   push:
     branches: [main, master]
+    paths-ignore:
+      - 'updates/**'   # a zip dropped in updates/ is handled by "Apply update zip", which then starts this build
   workflow_dispatch:
+    inputs:
+      full_only:
+        description: "Full update only (no small delta patches - every phone downloads the whole APK)"
+        type: boolean
+        default: false
+      silent:
+        description: "Do not send the push notification to users"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -27,6 +38,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VC: ${{ github.run_number }}
           REPO: ${{ github.repository }}
+          FULL_ONLY: ${{ inputs.full_only }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk ZetaBoard.apk
           python3 - <<'PY'
@@ -52,7 +64,7 @@ jobs:
           gh release create "v$VC" ZetaBoard.apk update.json "${PATCHES[@]}" --title "Zeta Board 1.0.$VC" --notes-file release_notes.md --target "$GITHUB_SHA"
       - name: Send push notification to all users
         # add [silent] to the commit message to publish a version without notifying everyone
-        if: ${{ !contains(github.event.head_commit.message, '[silent]') }}
+        if: ${{ !contains(github.event.head_commit.message, '[silent]') && inputs.silent != true }}
         continue-on-error: true
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}

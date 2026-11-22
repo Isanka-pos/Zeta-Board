@@ -1,4 +1,5 @@
 Live wallpapers in the Theme Store (Wallpapers tab, category Live): 7 videos added. Text Editor tool and sin/ph/wi Layout icon added.
+- IMPROVED: Updates now arrive all at once. The owner can hold new versions back and release them together, so you get one complete update instead of many small ones
 
 - NEW: Wijesekara keyboard. Open the tool list and tap Layout (hold and drag it onto the top bar to pin it): each tap goes English, Phonetic, Wijesekara. Wijesekara puts the standard Sinhala letters on the keys; Shift gives the second letter (shown small in the corner) and holding a key gives more letters. The සි key next to the emoji key still switches Sinhala typing on or off, using the layout you picked last. You can also choose Off, Phonetic or Wijesekara in the app (Typing & Fonts). Password fields keep the English keys
 - NEW: Word suggestions. While you type Singlish, up to three Sinhala words appear on the top bar (type gedar and see ගෙදර). Tap one to use it. Words you finish typing are remembered on your phone only, and you can clear them in the app (Smart typing -> Clear learned words). Switch it off in Smart typing

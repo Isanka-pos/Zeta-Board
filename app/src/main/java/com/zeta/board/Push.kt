@@ -40,6 +40,8 @@ object Push {
         if (apk.isEmpty()) return
         // already on this version (or newer): nothing to announce
         if (code <= Updater.currentCode(app)) return
+        // the owner is holding new versions back (Remote Config new_updates_on = false): ignore the push, the normal check offers it once released
+        if (!RemoteCfg.newUpdatesOn() && !RemoteCfg.mustUpdate(app)) return
 
         val info = Updater.Info(code, data["versionName"].orEmpty().ifBlank { "1.0.$code" }, data["notes"].orEmpty(), apk)
         UpdateStore.save(app, info)

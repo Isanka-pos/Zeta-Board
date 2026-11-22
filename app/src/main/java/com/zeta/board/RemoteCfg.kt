@@ -19,6 +19,7 @@ object RemoteCfg {
     const val BANNER_LINES = "banner_lines"
     const val PERF_ON = "perf_on"
     const val UPDATE_ALERTS = "update_alerts_on"
+    const val NEW_UPDATES = "new_updates_on"
 
     /** tool id -> remote key (true = tool works). Settings, Theme, Text style and Emoji can never be switched off. */
     private val toolKeys = mapOf(
@@ -41,6 +42,7 @@ object RemoteCfg {
         put(BANNER_LINES, "")
         put(PERF_ON, true)
         put(UPDATE_ALERTS, true)
+        put(NEW_UPDATES, true)
         for (k in toolKeys.values) put(k, true)
     }
 
@@ -108,6 +110,13 @@ object RemoteCfg {
      * alert is muted: the in-app banner, the Updates card and the forced update (min_version_code) keep working.
      */
     fun updateAlertsOn(): Boolean = bool(UPDATE_ALERTS)
+
+    /**
+     * False when the owner is holding new versions back in the console (new_updates_on = false). While it is false no phone is
+     * told about a new version (no dialog, banner or notification), even though releases keep being published on GitHub.
+     * Setting it to true lets every phone see and download the newest version at once. min_version_code still forces an update.
+     */
+    fun newUpdatesOn(): Boolean = bool(NEW_UPDATES)
 
     fun offMessage(): String = str(OFF_MESSAGE).trim().ifEmpty { defaults[OFF_MESSAGE] as String }.take(80)
 
