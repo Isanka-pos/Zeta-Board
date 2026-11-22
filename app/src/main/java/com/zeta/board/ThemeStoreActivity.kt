@@ -462,7 +462,7 @@ class ThemeStoreActivity : Activity() {
     }
 
     private fun onResetWallpaper() {
-        if (wpBusy || !KbBg.has(this)) return
+        if (wpBusy || !(KbBg.has(this) || KbVideo.has(this))) return
         WallpaperStore.reset(this)
         Toast.makeText(this, "Keyboard wallpaper removed", Toast.LENGTH_SHORT).show()
         refreshAll()
@@ -807,6 +807,20 @@ private class WallpaperTile(ctx: Context, val wp: Wallpaper) : View(ctx) {
         }
         c.drawRoundRect(rf, r, r, p)
         p.style = Paint.Style.FILL
+
+        // LIVE tag = a moving (video) wallpaper
+        if (wp.video) {
+            tp.textSize = d * 9f
+            val label = "LIVE"
+            val bw = tp.measureText(label) + d * 12f
+            val bh = d * 16f
+            rf.set(d * 8f, d * 8f, d * 8f + bw, d * 8f + bh)
+            p.color = Color.argb(190, 0, 0, 0)
+            c.drawRoundRect(rf, bh / 2f, bh / 2f, p)
+            tp.color = Pal.CYAN
+            c.drawText(label, rf.centerX(), rf.centerY() - (tp.descent() + tp.ascent()) / 2f, tp)
+            tp.color = Color.WHITE
+        }
 
         // tick = this wallpaper is the keyboard background now
         if (applied) {

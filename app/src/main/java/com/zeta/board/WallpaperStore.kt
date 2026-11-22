@@ -26,7 +26,9 @@ class Wallpaper(
     val full: String,
     val width: Int,
     val height: Int,
-    val size: Long
+    val size: Long,
+    /** True for a live (video) wallpaper: [full] is an .mp4 that plays behind the keys. */
+    val video: Boolean = false
 )
 
 /**
@@ -84,12 +86,14 @@ object WallpaperStore {
     /** True when this wallpaper is the keyboard background right now (a photo chosen later makes this false). */
     fun isActive(c: Context, w: Wallpaper): Boolean {
         if (Prefs.getS(c, KEY_ID, "") != w.id) return false
+        if (w.video) return KbVideo.has(c) && Prefs.getL(c, KEY_STAMP, -1L) == KbVideo.stamp(c)
         return KbBg.has(c) && Prefs.getL(c, KEY_STAMP, -1L) == KbBg.stamp(c)
     }
 
     /** Removes the keyboard background picture (themes show again). */
     fun reset(c: Context) {
         KbBg.clear(c)
+        KbVideo.clear(c)
         Prefs.setS(c, KEY_ID, "")
     }
 
@@ -162,6 +166,7 @@ object WallpaperStore {
             val id = o.optString("id", "")
             val thumb = o.optString("thumb", "")
             val full = o.optString("full", "")
+            val isVideo = o.optString("type", "").equals("video", ignoreCase = true) || full.lowercase().endsWith(".mp4")
             // only the server's own /files/ paths are accepted
             if (id.isEmpty() || !thumb.startsWith("/files/") || !full.startsWith("/files/")) continue
             out.add(
@@ -173,7 +178,8 @@ object WallpaperStore {
                     base + full,
                     o.optInt("width", 0),
                     o.optInt("height", 0),
-                    o.optLong("size", 0L)
+                    o.optLong("size", 0L),
+                    isVideo
                 )
             )
         }
@@ -269,10 +275,19 @@ object WallpaperStore {
             var err: String? = null
             val tmp = File(app.cacheDir, "wp_" + w.id + ".tmp")
             try {
-                if (isAsset(w.full)) copyAsset(app, w.full, tmp) else download(w.full, tmp, 16L * 1024L * 1024L)
-                if (!KbBg.save(app, Uri.fromFile(tmp))) throw IllegalStateException("The picture could not be read")
-                Prefs.setS(app, KEY_ID, w.id)
-                Prefs.setL(app, KEY_STAMP, KbBg.stamp(app))
+                if (w.video) {
+                    // live wallpaper: download the video, then let KbVideo check it and make it the keyboard background
+                    download(w.full, tmp, KbVideo.MAX_BYTES)
+                    val msg = KbVideo.save(app, Uri.fromFile(tmp))
+                    if (msg != null) throw IllegalStateException(msg)
+                    Prefs.setS(app, KEY_ID, w.id)
+                    Prefs.setL(app, KEY_STAMP, KbVideo.stamp(app))
+                } else {
+                    if (isAsset(w.full)) copyAsset(app, w.full, tmp) else download(w.full, tmp, 16L * 1024L * 1024L)
+                    if (!KbBg.save(app, Uri.fromFile(tmp))) throw IllegalStateException("The picture could not be read")
+                    Prefs.setS(app, KEY_ID, w.id)
+                    Prefs.setL(app, KEY_STAMP, KbBg.stamp(app))
+                }
             } catch (e: Exception) {
                 err = friendly(e)
             } finally {
@@ -314,7 +329,7 @@ object WallpaperStore {
         try {
             val code = conn.responseCode
             if (code != 200) throw IllegalStateException("Server answered $code")
-            if (conn.contentLengthLong > maxBytes) throw IllegalStateException("The picture is too big")
+            if (conn.contentLengthLong > maxBytes) throw IllegalStateException("The file is too big")
             var total = 0L
             conn.inputStream.use { input ->
                 FileOutputStream(out).use { os ->
@@ -323,12 +338,12 @@ object WallpaperStore {
                         val n = input.read(buf)
                         if (n < 0) break
                         total += n
-                        if (total > maxBytes) throw IllegalStateException("The picture is too big")
+                        if (total > maxBytes) throw IllegalStateException("The file is too big")
                         os.write(buf, 0, n)
                     }
                 }
             }
-            if (total == 0L) throw IllegalStateException("The picture is empty")
+            if (total == 0L) throw IllegalStateException("The file is empty")
         } catch (e: Exception) {
             out.delete()
             throw e

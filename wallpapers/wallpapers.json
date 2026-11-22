@@ -9,6 +9,83 @@
       "width": 736,
       "height": 461,
       "size": 51672
+    },
+    {
+      "id": "live_vegeta",
+      "name": "Vegeta Green Aura",
+      "category": "Live",
+      "type": "video",
+      "thumb": "/files/live_vegeta_thumb.jpg",
+      "full": "/files/live_vegeta.mp4",
+      "width": 606,
+      "height": 1080,
+      "size": 4580453
+    },
+    {
+      "id": "live_black_cat",
+      "name": "Cozy Black Cat",
+      "category": "Live",
+      "type": "video",
+      "thumb": "/files/live_black_cat_thumb.jpg",
+      "full": "/files/live_black_cat.mp4",
+      "width": 606,
+      "height": 1080,
+      "size": 5700530
+    },
+    {
+      "id": "live_asta",
+      "name": "Black Clover Asta",
+      "category": "Live",
+      "type": "video",
+      "thumb": "/files/live_asta_thumb.jpg",
+      "full": "/files/live_asta.mp4",
+      "width": 606,
+      "height": 1080,
+      "size": 2667297
+    },
+    {
+      "id": "live_ichigo",
+      "name": "Ichigo Hollow Mask",
+      "category": "Live",
+      "type": "video",
+      "thumb": "/files/live_ichigo_thumb.jpg",
+      "full": "/files/live_ichigo.mp4",
+      "width": 606,
+      "height": 1080,
+      "size": 5826707
+    },
+    {
+      "id": "live_blue_eyes",
+      "name": "Glowing Blue Eyes",
+      "category": "Live",
+      "type": "video",
+      "thumb": "/files/live_blue_eyes_thumb.jpg",
+      "full": "/files/live_blue_eyes.mp4",
+      "width": 606,
+      "height": 1080,
+      "size": 4899048
+    },
+    {
+      "id": "live_arlecchino",
+      "name": "Arlecchino",
+      "category": "Live",
+      "type": "video",
+      "thumb": "/files/live_arlecchino_thumb.jpg",
+      "full": "/files/live_arlecchino.mp4",
+      "width": 1920,
+      "height": 1080,
+      "size": 853634
+    },
+    {
+      "id": "live_vash",
+      "name": "Vash the Stampede",
+      "category": "Live",
+      "type": "video",
+      "thumb": "/files/live_vash_thumb.jpg",
+      "full": "/files/live_vash.mp4",
+      "width": 606,
+      "height": 1080,
+      "size": 5846947
     }
   ]
 }
