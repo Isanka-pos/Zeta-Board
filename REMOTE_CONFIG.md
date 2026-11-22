@@ -17,6 +17,7 @@ Change these without releasing a new APK. After **Publish changes**, phones pick
 | `tool_off_message` | String | `This tool is paused for now. Please try again later.` | Text shown on the toolbar when someone taps a switched-off tool (max 80 chars) |
 | `emojimix_url` | String | empty | Emoji Mix API address (https only). Empty = the one built into the app |
 | `wallpaper_url` | String | empty | Wallpaper server address (https only). Empty = the built-in one / GitHub folder |
+| `update_alerts_on` | Boolean | `true` | `false` stops the "Update available" notification (from the 15-minute check and from the instant push) on every phone that has this version or newer. The in-app banner, the Updates card and `min_version_code` still work. Set back to `true` and phones that were not told yet get the notification for the version that is waiting |
 | `perf_on` | Boolean | `true` | `false` switches Firebase Performance monitoring off for everyone |
 | `banner_lines` | String | empty | Hacker-theme typing banner lines, comma separated, e.g. `ZETA_BOARD,wake_up_neo,root@zeta`. Letters, digits and `_ @ . -` only, 11 characters each, up to 12 lines. Empty = built-in lines |
 

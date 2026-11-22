@@ -97,7 +97,8 @@ object UpdateWatcher {
             }
             if (info != null) {
                 UpdateStore.save(app, info)
-                if (!Updater.dialogOpen && info.code > Prefs.getI(app, "notified_code", 0).toLong()) {
+                // notified_code is only moved forward when an alert is really shown, so switching alerts back on announces the waiting version
+                if (RemoteCfg.updateAlertsOn() && !Updater.dialogOpen && info.code > Prefs.getI(app, "notified_code", 0).toLong()) {
                     Prefs.setI(app, "notified_code", info.code.toInt())
                     UpdateNotifier.show(app, info)
                 }
@@ -211,6 +212,61 @@ object UpdateNotifier {
                 .setAutoCancel(true)
                 .build()
             nm.notify(ID_AVAILABLE, n)
+        } catch (e: Exception) {
+        }
+    }
+
+    const val ID_READY = 7003
+
+    private fun installIntent(ctx: Context, req: Int): PendingIntent {
+        val open = Intent(ctx, MainActivity::class.java)
+        open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        open.putExtra("install_update", true)
+        return PendingIntent.getActivity(ctx, req, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    /** "The update was downloaded" - tapping it starts the install. */
+    fun showReady(ctx: Context, name: String) {
+        try {
+            val nm = manager(ctx) ?: return
+            val pi = installIntent(ctx, 3)
+            val n = Notification.Builder(ctx, CHANNEL)
+                .setSmallIcon(R.drawable.ic_notif)
+                .setLargeIcon(Logo.square(ctx, 192))
+                .setColor(Pal.GREEN)
+                .setCategory(Notification.CATEGORY_STATUS)
+                .setContentTitle("Update downloaded \u2713")
+                .setContentText("Tap to install Zeta Board" + if (name.isNotEmpty()) " v$name" else "")
+                .setSubText("Ready to install")
+                .addAction(Notification.Action.Builder(Icon.createWithResource(ctx, R.drawable.ic_notif), "Install", pi).build())
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(ID_READY, n)
+        } catch (e: Exception) {
+        }
+    }
+
+    fun showDownloadFailed(ctx: Context) {
+        try {
+            val nm = manager(ctx) ?: return
+            val n = Notification.Builder(ctx, CHANNEL)
+                .setSmallIcon(R.drawable.ic_notif)
+                .setColor(Pal.PURPLE)
+                .setCategory(Notification.CATEGORY_STATUS)
+                .setContentTitle("Update download failed")
+                .setContentText("Tap to try again")
+                .setContentIntent(openApp(ctx, 4))
+                .setAutoCancel(true)
+                .build()
+            nm.notify(ID_READY, n)
+        } catch (e: Exception) {
+        }
+    }
+
+    fun cancelReady(ctx: Context) {
+        try {
+            (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(ID_READY)
         } catch (e: Exception) {
         }
     }

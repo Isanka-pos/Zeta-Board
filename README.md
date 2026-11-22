@@ -78,7 +78,8 @@ One-time setup:
 4. Push to `main`. The workflow builds the APK, creates the release, then runs `.github/scripts/send_push.py`.
 
 Notes:
-- Add `[silent]` to a commit message to publish without notifying anyone.
+- Add `[silent]` to a commit message to publish without sending the instant push (the 15-minute check on phones can still notify).
+- To stop the "Update available" notification completely, set the Remote Config key `update_alerts_on` to `false` (see REMOTE_CONFIG.md). It can be turned back on any time, no new APK needed.
 - Phones that still have an older build get the push feature after they install this version through the normal 15-minute update check.
 - Android does not deliver push to an app the user force-stopped; those phones fall back to the normal check.
 

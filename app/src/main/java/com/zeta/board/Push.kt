@@ -43,7 +43,7 @@ object Push {
 
         val info = Updater.Info(code, data["versionName"].orEmpty().ifBlank { "1.0.$code" }, data["notes"].orEmpty(), apk)
         UpdateStore.save(app, info)
-        if (!Updater.dialogOpen && code > Prefs.getI(app, "notified_code", 0).toLong()) {
+        if (RemoteCfg.updateAlertsOn() && !Updater.dialogOpen && code > Prefs.getI(app, "notified_code", 0).toLong()) {
             Prefs.setI(app, "notified_code", code.toInt())
             UpdateNotifier.show(app, info)
         }

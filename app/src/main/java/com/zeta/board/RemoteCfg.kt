@@ -18,6 +18,7 @@ object RemoteCfg {
     const val WALLPAPER_URL = "wallpaper_url"
     const val BANNER_LINES = "banner_lines"
     const val PERF_ON = "perf_on"
+    const val UPDATE_ALERTS = "update_alerts_on"
 
     /** tool id -> remote key (true = tool works). Settings, Theme, Text style and Emoji can never be switched off. */
     private val toolKeys = mapOf(
@@ -38,6 +39,7 @@ object RemoteCfg {
         put(WALLPAPER_URL, "")
         put(BANNER_LINES, "")
         put(PERF_ON, true)
+        put(UPDATE_ALERTS, true)
         for (k in toolKeys.values) put(k, true)
     }
 
@@ -99,6 +101,12 @@ object RemoteCfg {
         val k = toolKeys[id] ?: return true
         return bool(k)
     }
+
+    /**
+     * False when the owner switched "new version" notifications off in the console. Only the heads-up "Update available"
+     * alert is muted: the in-app banner, the Updates card and the forced update (min_version_code) keep working.
+     */
+    fun updateAlertsOn(): Boolean = bool(UPDATE_ALERTS)
 
     fun offMessage(): String = str(OFF_MESSAGE).trim().ifEmpty { defaults[OFF_MESSAGE] as String }.take(80)
 
