@@ -13,6 +13,7 @@ Change these without releasing a new APK. After **Publish changes**, phones pick
 | `tool_voice_on` | Boolean | `true` | Voice typing |
 | `tool_status_on` | Boolean | `true` | Status Saver |
 | `tool_singlish_on` | Boolean | `true` | Singlish toggle tool |
+| `tool_layout_on` | Boolean | `true` | Layout tool (English / Phonetic / Wijesekara) |
 | `tool_emojimix_on` | Boolean | `true` | Emoji Mix tool |
 | `tool_off_message` | String | `This tool is paused for now. Please try again later.` | Text shown on the toolbar when someone taps a switched-off tool (max 80 chars) |
 | `emojimix_url` | String | empty | Emoji Mix API address (https only). Empty = the one built into the app |

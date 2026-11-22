@@ -27,6 +27,7 @@ object Crash {
             c.setCustomKey("theme", Prefs.getI(ctx, "theme", 0))
             c.setCustomKey("apple_emoji", Prefs.getB(ctx, "apple_emoji", true))
             c.setCustomKey("singlish", Prefs.getB(ctx, "singlish", false))
+            c.setCustomKey("wije", Prefs.getB(ctx, "wije", false))
         } catch (e: Throwable) {
         }
     }

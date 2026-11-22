@@ -90,6 +90,9 @@ GitHub -> Actions -> **Send announcement** -> Run workflow. Fill in Title, Messa
 Keyboard tool list -> **Status Saver** (hold and drag it onto the top bar to pin it). Add the WhatsApp (or WhatsApp Business) status folder once through Android's folder picker, then tap statuses to select them and **Save** (gallery, folder "Zeta Board"), **Send** (into the chat box, falls back to the share sheet when the app does not accept media) or **Share**.
 Notes: only statuses already viewed in WhatsApp exist on the phone; saved files are never duplicated; the panel blocks screenshots like the clipboard panel.
 
+## Wijesekara keyboard
+Keyboard tool list -> **Layout** (pin it to the top bar), or the Typing & Fonts card in the app. Each tap goes English -> Phonetic -> Wijesekara -> English, and the toolbar says which one is on. The sign key next to the emoji key (සි or වි) switches Sinhala typing on or off with the layout used last. Wijesekara shows Sinhala letters on the keys (Shift gives the second letter, shown small in the key corner; hold a key for more letters). Type the consonant first and then its vowel sign, like the Windows Sinhala keyboard; kombuva signs join (ෙ+ෙ = ෛ, ෙ+ා = ො, ෙ+් = ේ, ො+් = ෝ). Password fields keep the English keys.
+
 ## Singlish typing
 Keyboard tool list -> **Singlish** (or the Singlish card in the app, menu -> Typing & Fonts). Letters typed on the English layer become Sinhala as you type; the word stays underlined until you type a space, punctuation, Enter or move the cursor. Backspace removes one typed letter and redraws the word.
 

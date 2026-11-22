@@ -29,7 +29,8 @@ object RemoteCfg {
         Tools.VOICE to "tool_voice_on",
         Tools.STATUS to "tool_status_on",
         Tools.SINGLISH to "tool_singlish_on",
-        Tools.MIX to "tool_emojimix_on"
+        Tools.MIX to "tool_emojimix_on",
+        Tools.LAYOUT to "tool_layout_on"
     )
 
     private val defaults: Map<String, Any> = HashMap<String, Any>().apply {

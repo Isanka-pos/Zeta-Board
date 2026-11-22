@@ -194,6 +194,20 @@ class ZetaIME : InputMethodService() {
             }
         }
 
+        override fun replaceBefore(n: Int, text: String): Boolean {
+            val ic = currentInputConnection ?: return false
+            if (selStart != selEnd) return false
+            return try {
+                ic.beginBatchEdit()
+                ic.deleteSurroundingText(n, 0)
+                ic.commitText(text, 1)
+                ic.endBatchEdit()
+                true
+            } catch (e: Exception) {
+                false
+            }
+        }
+
         override fun textBefore(n: Int): CharSequence? = try {
             currentInputConnection?.getTextBeforeCursor(n, 0)
         } catch (e: Exception) {
@@ -406,6 +420,7 @@ class ZetaIME : InputMethodService() {
         if (!restarting) h.cancelWork()
         h.closeTools()
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
+        h.kv.latinOnly = secure
         h.kv.reload()
         video?.sync()
         val layer = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) 1 else 0

@@ -28,6 +28,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
     interface Listener {
         fun onText(s: String)
         fun onAction(a: Int)
+
+        /** A Sinhala word suggestion on the toolbar was tapped (index 0..2). */
+        fun onWord(i: Int) {}
     }
 
     companion object {
@@ -54,10 +57,15 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val SINGLISH = 15
         /** The Emoji Mix tool was used. */
         const val MIX = 16
+        /** The quick Sinhala key (\u0DC3\u0DD2 / \u0DC0\u0DD2) was tapped: Sinhala typing on or off, with the layout used last. */
+        const val SINHALA = 17
+        /** The Layout tool was used: English -> phonetic -> Wijesekara. */
+        const val LAYOUT = 18
         const val STATUS_BUSY = 0
         const val STATUS_INFO = 1
         const val STATUS_ERROR = 2
         private const val TOOL_SUG = 99
+        private const val TOOL_WORD0 = 200 // 200..202: the three word suggestions
         private const val TOOL_BANNER = 98
         private const val TOOL_SPD_DONE = 97
         private const val TOOL_SPD_PLUS = 96
@@ -73,6 +81,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         private const val K_PAD = 7
         private const val K_STYLE = 8
         private const val K_FONTKEY = 9
+        private const val K_PHONETIC = 10
     }
 
     private class Key(
@@ -82,13 +91,21 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val alts: String = "",
         val arg: Int = 0,
         val icon: Int = 0,
-        val out: String = label
+        val out: String = label,
+        /** What the key gives with Shift, when that is not just the capital letter (the Wijesekara layout). */
+        val shiftOut: String? = null
     ) {
         val r = RectF()
         var altStr: List<String>? = null
     }
 
     var listener: Listener? = null
+
+    /** True in a password field: the keys stay Latin there, whatever Sinhala typing is on. */
+    var latinOnly = false
+
+    /** True while the Wijesekara keys are shown. */
+    private var wije = false
     var onTheme: ((KbTheme) -> Unit)? = null
     var theme: KbTheme = Themes.get(0)
         set(v) {
@@ -100,7 +117,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private val dm = ctx.resources.displayMetrics.density
     private fun dp(v: Float) = v * dm
 
-    // layers: 0 abc, 1 symbols, 2 more symbols, 3 sinhala, 4 emoji, 5 text style
+    // layers: 0 abc (also the phonetic Sinhala keyboard when Singlish is on), 1 symbols, 2 more symbols, 4 emoji, 5 text style
     private var layer = 0
     private var shift = 0
     private var emojiCat = 1
@@ -195,6 +212,13 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private var statusKind = STATUS_INFO
     private var statusIcon = R.drawable.ic_translate
     private val sugRect = RectF()
+
+    // Sinhala word suggestions (Singlish typing): shown on the toolbar strip when nothing else needs it
+    private var words: List<String> = emptyList()
+    private val wordRect = RectF()
+    // small Sinhala letter on each key while phonetic typing is on (Smart typing -> Key hints)
+    private var hintsOn = false
+    private val hintCache = HashMap<Int, String?>()
 
     // tool list: the icons that do not fit on the toolbar open from the last (menu) icon
     private var menuOpen = false
@@ -358,6 +382,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             bgRaw = if (stamp != 0L) KbBg.load(c, 1) else null
             buildBg()
         }
+        syncMode()
         rows = build()
         requestLayout()
         layoutKeys()
@@ -407,6 +432,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             Tools.VOICE -> listener?.onAction(VOICE)
             Tools.STATUS -> listener?.onAction(STATUSES)
             Tools.SINGLISH -> listener?.onAction(SINGLISH)
+            Tools.LAYOUT -> listener?.onAction(LAYOUT)
             Tools.MIX -> listener?.onAction(MIX)
             Tools.SPEED -> openSpeed()
         }
@@ -424,8 +450,19 @@ class KeyboardView(ctx: Context) : View(ctx) {
         invalidate()
     }
 
-    private fun stripOn(): Boolean = statusMsg != null || suggestion != null
+    private fun wordsShown(): Boolean = statusMsg == null && suggestion == null && words.isNotEmpty()
 
+    private fun stripOn(): Boolean = statusMsg != null || suggestion != null || words.isNotEmpty()
+
+    /** Shows up to three Sinhala word suggestions on the toolbar (empty list hides them). */
+    fun setWords(list: List<String>) {
+        if (list == words) return
+        words = list
+        if (pressedTool >= TOOL_WORD0 && !wordsShown()) pressedTool = -1
+        if (list.isNotEmpty() && pressedTool in toolRects.indices) pressedTool = -1
+        if (list.isNotEmpty()) menuOpen = false
+        invalidate()
+    }
     /** Shows a short status on the toolbar in place of the icons ([STATUS_BUSY], [STATUS_INFO] or [STATUS_ERROR]); null clears it. */
     fun setStatus(msg: String?, kind: Int = STATUS_INFO, icon: Int = R.drawable.ic_translate) {
         if (msg == statusMsg && kind == statusKind && icon == statusIcon) return
@@ -442,15 +479,34 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     /** Singlish typing was switched on or off: capital letters are meaningful in Singlish, so no automatic capital. */
     fun onSinglishChanged() {
-        if (singlishOn() && shift == 1) shift = 0
+        syncMode()
+        if (noAutoCap() && shift == 1) shift = 0
         rebuild()
+    }
+
+    private fun sinhalaOn(): Boolean = SinMode.current(context) != SinMode.OFF
+
+    /** Capital letters mean something in Singlish, and Wijesekara has none: no automatic capital at the start of a sentence. */
+    private fun noAutoCap(): Boolean = singlishOn() || wije
+
+    /** Reads which Sinhala typing is on (the keys and the hints depend on it). */
+    private fun syncMode() {
+        wije = !latinOnly && SinMode.current(context) == SinMode.WIJESEKARA
+        hintsOn = singlishOn() && Prefs.getB(context, "key_hints", true)
+    }
+
+    /** A vowel sign alone on a key is drawn with a dotted circle in front, so it can be seen. */
+    private fun markLabel(s: String): String {
+        if (s.isEmpty()) return s
+        val t = Character.getType(s[0])
+        return if (t == Character.NON_SPACING_MARK.toInt() || t == Character.COMBINING_SPACING_MARK.toInt()) "\u25CC" + s else s
     }
 
     fun startInput(l: Int, s: Int) {
         menuOpen = false
         closeSpeed()
         layer = l
-        shift = if (l == 0 && singlishOn()) 0 else s
+        shift = if (l == 0 && noAutoCap()) 0 else s
         afterSentence = false
         rebuild()
     }
@@ -462,6 +518,26 @@ class KeyboardView(ctx: Context) : View(ctx) {
         Key(ch.toString(), K_CHAR, alts = d + (accents[ch] ?: ""))
     }
 
+    /** The Wijesekara letter keys: the letter, its Shift letter and the extra letters shown when the key is held. */
+    private fun wijeKeys(list: List<Wijesekara.Letter>, dig: String = ""): List<Key> = list.mapIndexed { i, w ->
+        val all = ArrayList<String>()
+        if (i < dig.length) all.add(dig[i].toString())
+        all.addAll(w.extra)
+        val key = Key(w.n, K_CHAR, alts = all.joinToString(""), shiftOut = w.s)
+        if (all.isNotEmpty()) key.altStr = all
+        key
+    }
+
+    private fun wijeRows(delKey: Key): List<List<Key>> {
+        val out = ArrayList<List<Key>>()
+        if (numRow) out.add(chars("1234567890"))
+        out.add(wijeKeys(Wijesekara.top, if (numRow) "" else "1234567890"))
+        out.add(wijeKeys(Wijesekara.home))
+        out.add(listOf(Key("", K_SHIFT, 1.5f, icon = R.drawable.ic_shift)) + wijeKeys(Wijesekara.bottom) + delKey)
+        out.add(bottom(0))
+        return out
+    }
+
     private fun bottom(mode: Int): List<Key> {
         val l = ArrayList<Key>()
         when (mode) {
@@ -470,7 +546,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
         if (mode != 1) {
             l.add(Key("", K_LAYER, 1f, arg = 4, icon = R.drawable.ic_emoji))
-            if (mode == 2) l.add(Key("EN", K_LAYER, 1f, arg = 0)) else l.add(Key("\u0DC3\u0DD2", K_LAYER, 1f, arg = 3))
+            l.add(Key(if (SinMode.lastLayout(context) == SinMode.WIJESEKARA) "\u0DC0\u0DD2" else "\u0DC3\u0DD2", K_PHONETIC, 1f))
         }
         l.add(Key(",", K_CHAR))
         l.add(Key("", K_SPACE, if (mode == 1) 4.6f else 3.4f))
@@ -483,7 +559,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val out = ArrayList<List<Key>>()
         val delKey = Key("", K_DEL, 1.5f, icon = R.drawable.ic_backspace)
         when (layer) {
-            0 -> {
+            0 -> if (wije) {
+                out.addAll(wijeRows(delKey))
+            } else {
                 if (numRow) out.add(chars("1234567890"))
                 out.add(chars("qwertyuiop", if (numRow) "" else "1234567890"))
                 out.add(listOf(Key("", K_PAD, 0.5f)) + chars("asdfghjkl") + Key("", K_PAD, 0.5f))
@@ -501,14 +579,6 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 out.add(chars("\u00A3\u00A2\u20AC\u00A5^\u00B0={}\\"))
                 out.add(listOf(Key("123", K_LAYER, 1.5f, arg = 1)) + chars("%\u00A9\u00AE\u2122[]<>") + delKey)
                 out.add(bottom(1))
-            }
-            3 -> {
-                out.add(chars("\u0D85\u0D86\u0D87\u0D88\u0D89\u0D8A\u0D8B\u0D8C\u0D91\u0D92"))
-                out.add(chars("\u0D9A\u0D9C\u0DA0\u0DA2\u0DA7\u0DA9\u0DAD\u0DAF\u0DB4\u0DB6"))
-                out.add(chars("\u0DB8\u0DBA\u0DBB\u0DBD\u0DC0\u0DC3\u0DC4\u0DC5\u0DB1\u0D82"))
-                val marks = listOf("\u0DCF", "\u0DD0", "\u0DD1", "\u0DD2", "\u0DD3", "\u0DD4", "\u0DD6", "\u0DD9", "\u0DDC", "\u0DCA")
-                out.add(marks.map { m -> Key("\u25CC" + m, K_CHAR, out = m) } + Key("", K_DEL, 1.3f, icon = R.drawable.ic_backspace))
-                out.add(bottom(2))
             }
             5 -> {
                 for (chunk in styleList.chunked(4)) {
@@ -550,6 +620,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
 
     private fun rebuild() {
+        syncMode()
         rows = build()
         layoutKeys()
         invalidate()
@@ -772,6 +843,59 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.typeface = savedTf
     }
 
+    private fun wordAt(x: Float): Int {
+        val n = words.size
+        if (n == 0) return TOOL_SUG
+        val l = dp(8f)
+        val cw = (width - 2 * l) / n
+        val i = ((x - l) / cw).toInt()
+        return if (i in 0 until n) TOOL_WORD0 + i else TOOL_SUG
+    }
+
+    private fun drawWords(c: Canvas) {
+        val t = theme
+        val h = toolH
+        val padX = dp(8f)
+        sugRect.set(padX, dp(5f), width - padX, h - dp(4f))
+        p.shader = null
+        p.style = Paint.Style.FILL
+        p.color = t.accent
+        p.alpha = 50
+        c.drawRoundRect(sugRect, dp(12f), dp(12f), p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = dp(1f)
+        p.alpha = 150
+        c.drawRoundRect(sugRect, dp(12f), dp(12f), p)
+        p.style = Paint.Style.FILL
+        val n = words.size
+        val cw = sugRect.width() / n
+        tp.textAlign = Paint.Align.CENTER
+        tp.letterSpacing = 0f
+        tp.textSize = dp(17f)
+        for (i in 0 until n) {
+            val l = sugRect.left + cw * i
+            if (pressedTool == TOOL_WORD0 + i) {
+                wordRect.set(l + dp(2f), sugRect.top + dp(2f), l + cw - dp(2f), sugRect.bottom - dp(2f))
+                p.color = t.accent
+                p.alpha = 110
+                c.drawRoundRect(wordRect, dp(10f), dp(10f), p)
+            }
+            if (i > 0) {
+                p.color = t.text
+                p.alpha = 70
+                c.drawRect(l - dp(0.5f), sugRect.top + dp(9f), l + dp(0.5f), sugRect.bottom - dp(9f), p)
+            }
+            var shown = words[i]
+            val maxW = cw - dp(12f)
+            val k = tp.breakText(shown, true, maxW, null)
+            if (k < shown.length) shown = shown.substring(0, (k - 1).coerceAtLeast(1)) + "\u2026"
+            tp.color = t.text
+            tp.alpha = 255
+            c.drawText(shown, l + cw / 2f, baseline(h / 2f), tp)
+        }
+        p.alpha = 255
+    }
+
     private fun drawToolbar(c: Canvas) {
         if (speedOpen) {
             drawSpeedStrip(c)
@@ -784,6 +908,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
         if (suggestion != null) {
             drawStrip(c, sugFlat, theme.accent, R.drawable.ic_quick)
+            return
+        }
+        if (words.isNotEmpty()) {
+            drawWords(c)
             return
         }
         val t = theme
@@ -837,7 +965,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 p.alpha = 90
                 c.drawCircle(toolRects[i].centerX(), h / 2f, dp(18f), p)
             }
-            val lit = i < pins.size && pins[i] == Tools.SINGLISH && singlishOn()
+            val lit = i < pins.size && ((pins[i] == Tools.SINGLISH && singlishOn()) || (pins[i] == Tools.LAYOUT && sinhalaOn()))
             icon(c, if (i < pins.size) Tools.icon(pins[i]) else R.drawable.ic_menu, toolRects[i], if (lit) t.accent else t.text, dp(20f))
         }
         if (layer == 4 && emojiPages > 1) {
@@ -1076,10 +1204,11 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val catSel = k.kind == K_CAT && k.arg == emojiCat
         val flat = layer == 4 && (k.kind == K_CHAR || (k.kind == K_CAT && !catSel))
         val shiftOn = k.kind == K_SHIFT && shift > 0
+        val phoneticOn = k.kind == K_PHONETIC && sinhalaOn()
         val bg = when {
             isP -> blend(t.key, t.accent, 0.55f)
             k.kind == K_STYLE && k.arg == textStyle -> t.accent
-            k.kind == K_ENTER || catSel || shiftOn -> t.accent
+            k.kind == K_ENTER || catSel || shiftOn || phoneticOn -> t.accent
             k.kind == K_CHAR || k.kind == K_SPACE -> t.key
             else -> t.special
         }
@@ -1104,7 +1233,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             if ((rgb and 1) != 0) drawRgbKey(c, k, isP)
         }
         val styleSel = k.kind == K_STYLE && k.arg == textStyle
-        val fg = if (k.kind == K_ENTER || catSel || shiftOn || styleSel) t.accentText else t.text
+        val fg = if (k.kind == K_ENTER || catSel || shiftOn || styleSel || phoneticOn) t.accentText else t.text
         if (k.icon != 0) {
             icon(c, k.icon, k.r, fg, dp(22f))
             if (k.kind == K_SHIFT && shift == 2) {
@@ -1142,17 +1271,38 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.color = fg
         when {
             k.kind == K_SPACE -> {
-                label = if (layer == 3 || (layer == 0 && singlishOn())) "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD" else TextStyles.convert(textStyle, "ZETA BOARD")
+                label = if (layer == 0 && (singlishOn() || wije)) "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD" else TextStyles.convert(textStyle, "ZETA BOARD")
                 tp.textSize = rh * 0.24f
                 tp.alpha = 140
             }
             k.kind == K_CHAR -> {
-                if (layer == 0 && shift > 0) label = label.uppercase()
+                if (layer == 0 && shift > 0) label = k.shiftOut ?: label.uppercase()
+                if (wije && layer == 0) label = markLabel(label)
                 tp.textSize = rh * 0.42f
             }
             else -> tp.textSize = rh * 0.28f
         }
         c.drawText(label, k.r.centerX(), baseline(k.r.centerY()), tp)
+        if (wije && layer == 0 && k.kind == K_CHAR && shift == 0 && k.shiftOut != null) {
+            // Wijesekara: the Shift letter of the key, small in the corner
+            tp.color = fg
+            tp.alpha = 150
+            tp.textSize = rh * 0.22f
+            c.drawText(markLabel(k.shiftOut), k.r.right - k.r.width() * 0.2f, baseline(k.r.top + rh * 0.24f), tp)
+            tp.alpha = 255
+        }
+        if (hintsOn && layer == 0 && k.kind == K_CHAR && k.label.length == 1) {
+            val up = shift > 0
+            val key = k.label[0].code + (if (up) 65536 else 0)
+            val hn = if (hintCache.containsKey(key)) hintCache[key] else Singlish.hint(k.label[0], up).also { hintCache[key] = it }
+            if (hn != null) {
+                tp.color = fg
+                tp.alpha = 150
+                tp.textSize = rh * 0.22f
+                c.drawText(hn, k.r.right - k.r.width() * 0.2f, baseline(k.r.top + rh * 0.24f), tp)
+                tp.alpha = 255
+            }
+        }
     }
 
     private fun altLeft(k: Key): Float {
@@ -1191,7 +1341,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 } else {
                     tp.color = if (i == altSel) t.accentText else t.text
                     tp.textSize = dp(22f)
-                    c.drawText(s, l + i * iw + iw / 2f, baseline(top + ih / 2f), tp)
+                    c.drawText(if (wije && layer == 0) markLabel(s) else s, l + i * iw + iw / 2f, baseline(top + ih / 2f), tp)
                 }
             }
         } else if (preview && k.kind == K_CHAR && layer != 4) {
@@ -1205,7 +1355,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
             p.color = t.special
             c.drawRoundRect(rect, dp(12f), dp(12f), p)
             var s = k.out
-            if (layer == 0 && shift > 0) s = s.uppercase()
+            if (layer == 0 && shift > 0) s = k.shiftOut ?: s.uppercase()
+            if (wije && layer == 0) s = markLabel(s)
             tp.color = t.text
             tp.textSize = dp(28f)
             c.drawText(s, rect.centerX(), baseline(rect.centerY()), tp)
@@ -1270,6 +1421,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             pressed = null
             pressedTool = when {
                 speedOpen -> speedHit(x, y)
+                wordsShown() -> wordAt(x)
                 stripOn() -> TOOL_SUG
                 else -> {
                     val ti = toolAt(x, y)
@@ -1406,6 +1558,11 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 return
             }
         }
+        if (i >= TOOL_WORD0 && i < TOOL_WORD0 + 3) {
+            listener?.onWord(i - TOOL_WORD0)
+            invalidate()
+            return
+        }
         if (i == TOOL_SUG) {
             if (statusMsg != null) listener?.onAction(STATUS) else if (suggestion != null) listener?.onAction(SUGGEST)
             invalidate()
@@ -1419,7 +1576,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private fun commitKey(k: Key) {
         when (k.kind) {
             K_CHAR -> {
-                val s = if (layer == 0 && shift > 0) k.out.uppercase() else k.out
+                val s = if (layer == 0 && shift > 0) (k.shiftOut ?: k.out.uppercase()) else k.out
                 listener?.onText(s)
                 if (layer == 4) Emojis.addRecent(context, s)
                 afterSentence = s == "." || s == "!" || s == "?"
@@ -1432,7 +1589,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 listener?.onText(" ")
                 val auto = afterSentence
                 afterSentence = false
-                if (auto && layer == 0 && shift == 0 && !singlishOn()) {
+                if (auto && layer == 0 && shift == 0 && !noAutoCap()) {
                     shift = 1
                     rebuild()
                 }
@@ -1446,6 +1603,14 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 shift = if (shift == 1 && now - lastShiftTap < 350) 2 else if (shift == 0) 1 else 0
                 lastShiftTap = now
                 rebuild()
+            }
+            K_PHONETIC -> {
+                // Sinhala typing on or off, with the layout used last (phonetic or Wijesekara)
+                if (layer != 0) {
+                    layer = 0
+                    rebuild()
+                }
+                listener?.onAction(SINHALA)
             }
             K_LAYER -> {
                 layer = k.arg

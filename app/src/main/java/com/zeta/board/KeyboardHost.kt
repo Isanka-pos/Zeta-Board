@@ -83,6 +83,9 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         /** Singlish typing: the [n] characters before the cursor, or null when there is no field. */
         fun textBefore(n: Int): CharSequence? = null
 
+        /** Auto-fix: swaps the [n] characters before the cursor for [text]. False when that is not possible (no field, a selection). */
+        fun replaceBefore(n: Int, text: String): Boolean = false
+
         /** Zeta Translate: false in password / private fields. */
         fun translateAllowed(): Boolean = true
 
@@ -363,11 +366,95 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private fun singlishActive(): Boolean =
         Prefs.getB(context, "singlish", false) && out.quickAllowed() && !routed()
 
+    /** True while the Wijesekara keys type into a normal text field (kombuva signs then join: ෙ + ා = ො). */
+    private fun wijeActive(): Boolean =
+        Prefs.getB(context, "wije", false) && out.quickAllowed() && !routed()
+
+    // ---- word suggestions (Smart typing) ----
+
+    private var curWords: List<String> = emptyList()
+
+    private fun wordsOn(): Boolean = Prefs.getB(context, "word_suggest", true)
+
+    private fun clearWords() {
+        if (curWords.isEmpty()) return
+        curWords = emptyList()
+        kv.setWords(curWords)
+    }
+
+    private fun updateWords() {
+        if (singBuf.isEmpty() || !wordsOn()) {
+            clearWords()
+            return
+        }
+        curWords = WordSuggest.suggest(context, singBuf.toString())
+        kv.setWords(curWords)
+    }
+
+    override fun onWord(i: Int) {
+        val w = curWords.getOrNull(i) ?: return
+        if (singBuf.isEmpty()) return
+        out.setComposing(w)
+        out.finishComposing()
+        out.commit(" ")
+        singBuf.setLength(0)
+        WordSuggest.learn(context, w)
+        clearWords()
+        scheduleSuggestion()
+    }
+
+    // ---- auto-fix (Smart typing) ----
+
+    private class Fix(val original: String, val fixed: String, val delim: String)
+
+    private var lastFix: Fix? = null
+
+    /** A word that was just put back by backspace: it is not fixed again the next time it ends. */
+    private var skipFix: String? = null
+
+    /** If the word before the cursor is a known typo and [delim] ends it, replaces it. Returns what was done, or null. */
+    private fun tryAutoFix(delim: String): Fix? {
+        if (!Prefs.getB(context, "autofix", true) || !out.quickAllowed()) return null
+        val before = try {
+            out.textBefore(40)?.toString()
+        } catch (e: Exception) {
+            null
+        } ?: return null
+        var i = before.length
+        while (i > 0 && AutoFix.isWordChar(before[i - 1])) i--
+        while (i < before.length && before[i] == '\'') i++
+        val word = before.substring(i)
+        val fixed = AutoFix.fix(word) ?: return null
+        val skip = skipFix
+        if (skip != null) {
+            skipFix = null
+            if (skip.equals(word, true)) return null
+        }
+        if (!out.replaceBefore(word.length, fixed)) return null
+        return Fix(word, fixed, delim)
+    }
+
+    /** Backspace right after an auto-fix: puts back what the user typed. True when it did. */
+    private fun undoAutoFix(f: Fix): Boolean {
+        val want = f.fixed + f.delim
+        val now = try {
+            out.textBefore(want.length)?.toString()
+        } catch (e: Exception) {
+            null
+        }
+        if (now != want) return false
+        if (!out.replaceBefore(want.length, f.original)) return false
+        skipFix = f.original
+        return true
+    }
+
     /** Ends the word being written: the Sinhala stays in the field as normal text. */
     fun flushSinglish() {
         singRaw = false
         if (singBuf.isEmpty()) return
+        if (wordsOn()) WordSuggest.learn(context, Singlish.convert(singBuf.toString()))
         singBuf.setLength(0)
+        clearWords()
         out.finishComposing()
     }
 
@@ -375,6 +462,9 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     fun resetSinglish() {
         singBuf.setLength(0)
         singRaw = false
+        lastFix = null
+        skipFix = null
+        clearWords()
     }
 
     /**
@@ -389,19 +479,31 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         } catch (e: Exception) {
             null
         }
-        if (before != exp) singBuf.setLength(0)
-    }
-
-    private fun singlishToggle() {
-        val on = !Prefs.getB(context, "singlish", false)
-        Prefs.setB(context, "singlish", on)
-        kv.onSinglishChanged()
-        if (on) {
-            showStatus("Singlish ON \u2014 type mama gedara yanawa", KeyboardView.STATUS_INFO, 2600)
-        } else {
-            showStatus("Singlish OFF", KeyboardView.STATUS_INFO, 1800)
+        if (before != exp) {
+            singBuf.setLength(0)
+            clearWords()
         }
     }
+
+    /** Switches Sinhala typing to [mode] (SinMode.OFF / PHONETIC / WIJESEKARA) and says so on the toolbar. */
+    private fun setSinMode(mode: Int) {
+        SinMode.set(context, mode)
+        kv.onSinglishChanged()
+        when (mode) {
+            SinMode.PHONETIC -> showStatus("Sinhala phonetic ON \u2014 type mama gedara yanawa", KeyboardView.STATUS_INFO, 2600)
+            SinMode.WIJESEKARA -> showStatus("Sinhala Wijesekara ON \u2014 hold a key for more letters", KeyboardView.STATUS_INFO, 2600)
+            else -> showStatus("Sinhala typing OFF \u2014 English keys", KeyboardView.STATUS_INFO, 1800)
+        }
+    }
+
+    /** The Singlish tool: phonetic typing on or off. */
+    private fun singlishToggle() = setSinMode(if (SinMode.current(context) == SinMode.PHONETIC) SinMode.OFF else SinMode.PHONETIC)
+
+    /** The quick Sinhala key: Sinhala typing on (with the layout used last) or off. */
+    private fun sinhalaToggle() = setSinMode(if (SinMode.current(context) == SinMode.OFF) SinMode.lastLayout(context) else SinMode.OFF)
+
+    /** The Layout tool: English -> phonetic -> Wijesekara -> English. */
+    private fun sinhalaCycle() = setSinMode(SinMode.next(SinMode.current(context)))
 
     // ---- quick text ----
 
@@ -708,6 +810,18 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             return
         }
         quickSuppress = false
+        if (wijeActive() && s.length == 1) {
+            val prev = try {
+                out.charBeforeCursor()
+            } catch (e: Exception) {
+                null
+            }
+            val joined = if (prev != null) Wijesekara.combine(prev, s[0]) else null
+            if (joined != null && out.replaceBefore(1, joined.toString())) {
+                scheduleSuggestion()
+                return
+            }
+        }
         if (singlishActive()) {
             val letter = s.length == 1 && Singlish.isLetter(s[0])
             if (letter && (singRaw || (singBuf.isEmpty() && out.charBeforeCursor() == '.'))) {
@@ -716,6 +830,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             } else if (letter) {
                 singBuf.append(s)
                 out.setComposing(Singlish.convert(singBuf.toString()))
+                updateWords()
                 scheduleSuggestion()
                 return
             } else {
@@ -728,12 +843,24 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             refreshSuggestion() // the shortcut was just replaced: clear the toolbar suggestion right away
             return
         }
+        val fix = if (s.length == 1 && AutoFix.isDelimiter(s[0])) tryAutoFix(s) else null
         val st = Prefs.getI(context, "textstyle", 0)
         out.commit(if (st != 0) TextStyles.convert(st, s) else s)
+        lastFix = fix
         scheduleSuggestion()
     }
 
     override fun onAction(a: Int) {
+        if (a == KeyboardView.DEL && !routed()) {
+            val f = lastFix
+            lastFix = null
+            if (f != null && singBuf.isEmpty() && undoAutoFix(f)) {
+                scheduleSuggestion()
+                return
+            }
+        } else if (a != KeyboardView.DEL) {
+            lastFix = null
+        }
         if (a == KeyboardView.DEL && !routed() && singBuf.isNotEmpty()) {
             // Singlish: remove the last typed letter and redraw the Sinhala
             singBuf.setLength(singBuf.length - 1)
@@ -743,6 +870,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             } else {
                 out.setComposing(Singlish.convert(singBuf.toString()))
             }
+            updateWords()
             scheduleSuggestion()
             return
         }
@@ -778,6 +906,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.TRANSLATE -> translateAction()
             KeyboardView.VOICE -> voiceAction()
             KeyboardView.SINGLISH -> singlishToggle()
+            KeyboardView.SINHALA -> sinhalaToggle()
+            KeyboardView.LAYOUT -> sinhalaCycle()
             KeyboardView.MIX -> openMix()
             KeyboardView.STATUS -> if (voice.active) {
                 kv.setStatus("Finishing\u2026", KeyboardView.STATUS_BUSY, R.drawable.ic_mic)

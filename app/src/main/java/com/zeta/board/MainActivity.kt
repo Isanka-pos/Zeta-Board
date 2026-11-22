@@ -60,6 +60,8 @@ class MainActivity : Activity() {
     private lateinit var menuDot: View
     private val sections = ArrayList<Pair<View, Set<String>>>()
     private var curGroup = "home"
+    // the "update downloaded" notification was tapped: start the install once the screen is ready
+    private var installRequested = false
 
     // re-checks for updates every 15 minutes while the app is on screen
     private val ticker = Handler(Looper.getMainLooper())
@@ -77,6 +79,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installRequested = intent?.getBooleanExtra("install_update", false) == true
         UpdateScheduler.schedule(this)
         ClipRepo.init(this)
         QuickRepo.init(this)
@@ -116,6 +119,30 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("install_update", false)) {
+            installRequested = true
+            if (splashDone) tryInstallRequested()
+        }
+    }
+
+    /** Installs the update that was downloaded in the background (the notification was tapped). */
+    private fun tryInstallRequested() {
+        if (!installRequested) return
+        installRequested = false
+        UpdateNotifier.cancelReady(this)
+        val f = Updater.readyApk(this)
+        if (f != null) {
+            Updater.install(this, f)
+        } else {
+            // the file is gone or already installed: show the normal update window if there is still an update
+            val info = UpdateStore.pending(this)
+            if (info != null && !Updater.dialogOpen) UpdateDialog.show(this, info)
+        }
+    }
+
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
         if (::sideMenu.isInitialized && sideMenu.isOpen) {
@@ -131,6 +158,7 @@ class MainActivity : Activity() {
 
     /** Runs once the splash is gone: shows "what's new" after an update, otherwise looks for a new version. */
     private fun afterSplash() {
+        if (installRequested) tryInstallRequested()
         PostUpdate.detect(this)
         if (PostUpdate.shouldShow(this)) {
             val name = Updater.currentName(this)
@@ -160,6 +188,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        Updater.foreground = false
         ticker.removeCallbacks(tickRun)
         super.onPause()
     }
@@ -172,6 +201,9 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        Updater.foreground = true
+        if (splashDone && installRequested) tryInstallRequested()
+        if (UpdateStore.pending(this) == null) UpdateNotifier.cancelReady(this)
         ticker.removeCallbacks(tickRun)
         ticker.postDelayed(tickRun, UpdateWatcher.INTERVAL_MS)
         refreshClipStat()
@@ -739,7 +771,7 @@ class MainActivity : Activity() {
         updStatus = tv("", 13f, Pal.MUTED)
         updStatus.setPadding(0, dp(12), 0, 0)
         c.addView(updStatus)
-        val note = tv("Zeta Board checks for new versions every " + UpdateScheduler.INTERVAL_MIN + " minutes and tells you with a notification.", 12f, Pal.MUTED)
+        val note = tv("Zeta Board checks for new versions every " + UpdateScheduler.INTERVAL_MIN + " minutes and tells you with a notification. When you update, the download can keep going in the background: tap Hide, use your phone as normal, and tap the notification when it says the update is ready.", 12f, Pal.MUTED)
         note.setPadding(0, dp(8), 0, 0)
         c.addView(note)
         val lp = LinearLayout.LayoutParams(MATCH, WRAP)
@@ -861,6 +893,7 @@ class MainActivity : Activity() {
         put(textStyleCard(), "typing")
         put(keyFontCard(), "typing")
         put(singlishCard(), "typing")
+        put(smartTypingCard(), "typing")
         put(typingCard(), "typing")
         put(clipManagerCard(), "clipboard")
         put(clipSettingsCard(), "clipboard")
@@ -975,8 +1008,10 @@ class MainActivity : Activity() {
     }
 
     private fun singlishCard(): View {
-        val c = card("Singlish typing", "Type in English letters, get Sinhala")
-        c.addView(switchRow("Singlish \u2192 \u0DC3\u0DD2\u0D82\u0DC4\u0DBD", "Type mama gedara yanawa and it becomes \u0DB8\u0DB8 \u0D9C\u0DD9\u0DAF\u0DBB \u0DBA\u0DB1\u0DC0\u0DCF. You can also switch it on and off from the keyboard tool list (Singlish) \u2014 pin it to the top bar for one-tap use.", "singlish", false))
+        val c = card("Sinhala typing", "Singlish (phonetic) or the Wijesekara keyboard")
+        c.addView(tv("Typing mode", 15f, Color.WHITE).also { it.setPadding(0, dp(12), 0, dp(6)) })
+        c.addView(segment(listOf("Off", "Phonetic", "Wijesekara"), SinMode.current(this)) { SinMode.set(this, it) })
+        c.addView(tv("Phonetic (Singlish): type mama gedara yanawa on the English keys and it becomes \u0DB8\u0DB8 \u0D9C\u0DD9\u0DAF\u0DBB \u0DBA\u0DB1\u0DC0\u0DCF. Wijesekara: the standard Sinhala typewriter layout, Sinhala letters on the keys. On the keyboard, the \u0DC3\u0DD2 key (next to the emoji key) switches Sinhala typing on or off, and the Layout tool in the tool list (pin it to the top bar) goes English \u2192 Phonetic \u2192 Wijesekara.", 12f, Pal.MUTED).also { it.setPadding(0, dp(10), 0, 0) })
         c.addView(tv("Vowels:  a  aa  ae  aae  i  ii  u  uu  e  ee  ai  o  oo  au\n" +
             "Long vowels are doubled: kaa, kii, koo.   Verbs: yanawa works as is.\n" +
             "Capitals (use Shift):  T \u0DA8   D \u0DA9   N \u0DAB   L \u0DC5   S \u0DC2   K \u0D9B   J \u0DA3   G \u0D9D   C \u0DA1   P \u0DB5   B \u0DB7\n" +
@@ -984,6 +1019,30 @@ class MainActivity : Activity() {
             "x gives \u0D82 (sixhala = \u0DC3\u0DD2\u0D82\u0DC4\u0DBD),  H gives \u0D83\n" +
             "kriyaa = \u0D9A\u0DCA\u200D\u0DBB\u0DD2\u0DBA\u0DCF,   vidyaa = \u0DC0\u0DD2\u0DAF\u0DCA\u200D\u0DBA\u0DCF", 12f, Pal.MUTED).also { it.setPadding(0, dp(10), 0, 0) })
         c.addView(tv("Works offline. Nothing is saved or sent anywhere. Not used in password fields. While Singlish is on, the automatic capital letter at the start of a sentence is off, because capitals pick special Sinhala letters. Quick Text shortcuts that start with a dot (.welcome) are typed as normal letters, so they still work.", 12f, Pal.MUTED).also { it.setPadding(0, dp(10), 0, 0) })
+        c.addView(tv("Wijesekara: each key shows its second letter small in the corner (press Shift to type it). Hold a key for more letters, for example hold \u0DD9 for \u0DDA \u0DDB \u0DDC \u0DDD \u0DDE, or hold \u0DBB for \u0DCA\u200D\u0DBB (rakaransaya) and \u0DBB\u0DCA\u200D (repaya). Type the consonant first and then its vowel sign, like in Windows (\u0D9A then \u0DD9 gives \u0D9A\u0DD9). \u0DD9 twice gives \u0DDB, \u0DD9 then \u0DCF gives \u0DDC, \u0DD9 then \u0DCA gives \u0DDA. In password fields the keys stay English.", 12f, Pal.MUTED).also { it.setPadding(0, dp(10), 0, 0) })
+        return c
+    }
+
+    private fun smartTypingCard(): View {
+        val c = card("Smart typing", "Suggestions, hints and auto-fix")
+        c.addView(switchRow("Word suggestions", "While you type Singlish, Sinhala words appear on the top bar. Tap one to use it. Words you finish typing are remembered on this phone only.", "word_suggest", true))
+        c.addView(switchRow("Key hints", "Show a small Sinhala letter on each key while Sinhala phonetic typing is on (the \u0DC3\u0DD2 key).", "key_hints", true))
+        c.addView(switchRow("Auto-fix", "Fixes common English typos when you finish a word (teh \u2192 the, dont \u2192 don't, im \u2192 I'm). Press backspace right after a fix to undo it. Does not change Sinhala typing.", "autofix", true))
+        val count = tv("", 12f, Pal.MUTED)
+        count.setPadding(0, dp(10), 0, 0)
+        fun refresh() {
+            val n = WordSuggest.learnedCount(this)
+            count.text = if (n == 0) "No learned words yet." else "$n learned words are saved on this phone. They are never sent anywhere."
+        }
+        refresh()
+        c.addView(count)
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(10)
+        c.addView(pill("Clear learned words") {
+            WordSuggest.clearLearned(this)
+            refresh()
+            Toast.makeText(this, "Learned words cleared", Toast.LENGTH_SHORT).show()
+        }, lp)
         return c
     }
 
