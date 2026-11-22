@@ -69,6 +69,7 @@ object EmojiMixApi {
             return
         }
         pool.execute {
+            val ptr = Perf.begin("emoji_mix")
             val out: Pair<MixResult?, String?> = try {
                 Pair(fetch(a, b), null)
             } catch (e: MixError) {
@@ -76,6 +77,7 @@ object EmojiMixApi {
             } catch (e: Exception) {
                 Pair(null, mapIo(e))
             }
+            Perf.end(ptr, if (out.first != null) "ok" else "error")
             val r = out.first
             if (r != null) {
                 synchronized(cache) {

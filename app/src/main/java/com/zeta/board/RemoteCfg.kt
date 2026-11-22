@@ -17,6 +17,7 @@ object RemoteCfg {
     const val EMOJIMIX_URL = "emojimix_url"
     const val WALLPAPER_URL = "wallpaper_url"
     const val BANNER_LINES = "banner_lines"
+    const val PERF_ON = "perf_on"
 
     /** tool id -> remote key (true = tool works). Settings, Theme, Text style and Emoji can never be switched off. */
     private val toolKeys = mapOf(
@@ -36,6 +37,7 @@ object RemoteCfg {
         put(EMOJIMIX_URL, "")
         put(WALLPAPER_URL, "")
         put(BANNER_LINES, "")
+        put(PERF_ON, true)
         for (k in toolKeys.values) put(k, true)
     }
 
@@ -68,6 +70,7 @@ object RemoteCfg {
             r.fetchAndActivate().addOnCompleteListener {
                 try {
                     applyBanner()
+                    Perf.setEnabled(bool(PERF_ON))
                 } catch (e: Throwable) {
                 }
                 done()

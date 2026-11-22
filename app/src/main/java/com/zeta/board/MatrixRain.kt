@@ -1,5 +1,6 @@
 package com.zeta.board
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -96,6 +97,33 @@ class MatrixRain(private val dm: Float) {
         }
     }
 
+    // Ready-made pictures of "0" and "1" (normal colour and glowing head colour). Drawing a bitmap is far cheaper than
+    // drawing a text run, and the rain draws hundreds of characters per frame.
+    private val gNorm = arrayOfNulls<Bitmap>(2)
+    private val gHead = arrayOfNulls<Bitmap>(2)
+    private var atlasColor = 0
+    private val bp = Paint(Paint.FILTER_BITMAP_FLAG)
+
+    private fun buildAtlas(color: Int, head: Int) {
+        val fm = paint.fontMetrics
+        val bw = Math.ceil(colW.toDouble()).toInt().coerceAtLeast(1)
+        val bh = Math.ceil((charH + fm.descent).toDouble()).toInt().coerceAtLeast(1)
+        for (g in 0..1) {
+            val ch = if (g == 0) "0" else "1"
+            paint.color = color
+            paint.alpha = 255
+            val b1 = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+            Canvas(b1).drawText(ch, colW / 2f, charH, paint)
+            gNorm[g] = b1
+            paint.color = head
+            paint.alpha = 255
+            val b2 = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+            Canvas(b2).drawText(ch, colW / 2f, charH, paint)
+            gHead[g] = b2
+        }
+        atlasColor = color
+    }
+
     /** Draws one frame of rain in [color]. The caller keeps invalidating while the theme is on. */
     fun draw(c: Canvas, color: Int) {
         if (cols == 0) return
@@ -109,27 +137,25 @@ class MatrixRain(private val dm: Float) {
         val b = Color.blue(color)
         // head colour: the theme colour pushed towards white, so it glows
         val headCol = Color.rgb(r + (255 - r) * 6 / 10, g + (255 - g) * 6 / 10, b + (255 - b) * 6 / 10)
+        if (gNorm[0] == null || atlasColor != color) buildAtlas(color, headCol)
 
         for (i in 0 until cols) {
             val hr = Math.floor((head[i] / charH).toDouble()).toInt()
             val t = trail[i]
-            val x = i * colW + colW / 2f
+            val left = i * colW
             val base = if (hot[i]) 1f else 0.55f
             for (j in 0 until t) {
                 val row = hr - j
                 if (row < 0 || row >= rows) continue
                 val f = 1f - j.toFloat() / t
-                if (j == 0) {
-                    paint.color = headCol
-                    paint.alpha = (255 * (if (hot[i]) 1f else 0.85f)).toInt()
-                } else {
-                    paint.color = color
-                    paint.alpha = (230 * f * f * base).toInt().coerceIn(0, 255)
-                }
-                c.drawText(glyph, i * rows + row, 1, x, (row + 1) * charH, paint)
+                val a = if (j == 0) (255 * (if (hot[i]) 1f else 0.85f)).toInt() else (230 * f * f * base).toInt().coerceIn(0, 255)
+                if (a < 12) continue // too faint to see: skip the draw
+                val gi = if (glyph[i * rows + row] == '0') 0 else 1
+                val bm = (if (j == 0) gHead[gi] else gNorm[gi]) ?: continue
+                bp.alpha = a
+                c.drawBitmap(bm, left, row * charH, bp)
             }
         }
-        paint.alpha = 255
     }
 }
 

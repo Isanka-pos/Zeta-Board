@@ -482,7 +482,6 @@ class MainActivity : Activity() {
         owner.gravity = Gravity.CENTER
         owner.setPadding(0, dp(8), 0, 0)
         c.addView(owner)
-        c.addView(switchRow("Send crash reports", "Helps fix bugs faster. Only the error details, phone model and Android version are sent. Never anything you type or copy.", Crash.PREF, true) { Crash.setEnabled(this, it) })
         // hidden: long-press the owner line to send a test crash (reopen the app afterwards so it uploads)
         owner.setOnLongClickListener {
             Toast.makeText(this, "Crashing on purpose... reopen the app to send the report", Toast.LENGTH_LONG).show()
@@ -1019,28 +1018,6 @@ class MainActivity : Activity() {
         })
         c.addView(sb, LinearLayout.LayoutParams(MATCH, WRAP))
         return c
-    }
-
-    private fun settingField(hint: String, key: String, secret: Boolean): EditText {
-        val e = EditText(this)
-        e.hint = hint
-        e.setText(Prefs.getS(this, key, ""))
-        e.setTextColor(Color.WHITE)
-        e.setHintTextColor(Pal.MUTED)
-        e.textSize = 14f
-        e.setSingleLine(true)
-        e.inputType = InputType.TYPE_CLASS_TEXT or (if (secret) InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_TEXT_VARIATION_URI)
-        e.setPadding(dp(14), dp(10), dp(14), dp(10))
-        e.background = roundBg(Pal.BG, 14, Pal.STROKE, 1)
-        e.addTextChangedListener(object : android.text.TextWatcher {
-            override fun afterTextChanged(s: android.text.Editable?) { Prefs.setS(this@MainActivity, key, s?.toString()?.trim() ?: "") }
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-        })
-        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
-        lp.topMargin = dp(8)
-        e.layoutParams = lp
-        return e
     }
 
     private var micRefresh: (() -> Unit)? = null

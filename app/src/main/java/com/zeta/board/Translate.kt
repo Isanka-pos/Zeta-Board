@@ -116,6 +116,7 @@ object Translator {
         cancel()
         val my = gen
         pool.execute {
+            val ptr = Perf.begin("translate")
             var res: TResult? = null
             var err: TError? = null
             try {
@@ -125,6 +126,7 @@ object Translator {
             } catch (e: Exception) {
                 err = TError(TError.Kind.BAD_RESPONSE, "Something went wrong while translating.")
             }
+            Perf.end(ptr, err?.kind?.name?.lowercase() ?: "ok")
             active = null
             if (my == gen && err?.kind != TError.Kind.CANCELLED) {
                 main.post { if (my == gen) done(res, err) }

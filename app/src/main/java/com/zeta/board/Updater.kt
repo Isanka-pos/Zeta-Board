@@ -145,6 +145,7 @@ object Updater {
         val app = c.applicationContext
         val dir = File(app.cacheDir, "updates")
         Thread {
+            val ptr = Perf.begin("update_download")
             val out = File(dir, "ZetaBoard.apk")
             try {
                 dir.mkdirs()
@@ -185,11 +186,13 @@ object Updater {
                 if (total > 0 && got != total) throw IllegalStateException("incomplete download")
                 if (!isValidApk(app, out)) throw IllegalStateException("invalid apk")
                 val g = got
+                Perf.end(ptr, "ok")
                 main.post {
                     onProgress(100, g, total)
                     onDone(out)
                 }
             } catch (e: Exception) {
+                Perf.end(ptr, if (e is InterruptedException) "cancelled" else "error")
                 if (e !is InterruptedException) Crash.log("updateDownload", e)
                 out.delete()
                 main.post { onDone(null) }

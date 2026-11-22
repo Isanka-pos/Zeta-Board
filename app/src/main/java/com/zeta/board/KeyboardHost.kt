@@ -182,6 +182,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         panel.visibility = GONE
         kv.visibility = VISIBLE
         syncSecure()
+        refreshSuggestion()
     }
 
     // ---- tool list ----
@@ -408,6 +409,14 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
      * Shows or hides the Quick Text suggestion on the toolbar. Cheap to call often: the toolbar only redraws when it changes.
      * [reset] is true when a new text field starts.
      */
+    private val sugRun = Runnable { refreshSuggestion() }
+
+    /** Typing fast fires a selection update per key; look up the shortcut once the burst pauses instead of asking the app every time. */
+    fun scheduleSuggestion() {
+        ui.removeCallbacks(sugRun)
+        ui.postDelayed(sugRun, 70L)
+    }
+
     fun refreshSuggestion(reset: Boolean = false) {
         if (reset) quickSuppress = false
         val m = if (quickSuppress || panelOpen || stickersOpen || quickOpen || toolsOpen || mixOpen) null else try {
@@ -446,6 +455,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         quick.visibility = GONE
         kv.visibility = VISIBLE
         syncSecure()
+        refreshSuggestion()
     }
 
     override fun onQuickPick(text: String): Boolean {
@@ -577,6 +587,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         stickers.visibility = GONE
         kv.visibility = VISIBLE
         syncSecure()
+        refreshSuggestion()
     }
 
     /** Called every time the keyboard shows up: opens the sticker panel if a photo/sticker is waiting for it. */
@@ -619,6 +630,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         status.visibility = GONE
         kv.visibility = VISIBLE
         syncSecure()
+        refreshSuggestion()
     }
 
     override fun onStatusSetup(kind: String) {
@@ -704,7 +716,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             } else if (letter) {
                 singBuf.append(s)
                 out.setComposing(Singlish.convert(singBuf.toString()))
-                refreshSuggestion()
+                scheduleSuggestion()
                 return
             } else {
                 flushSinglish()
@@ -713,12 +725,12 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         }
         // Quick Text: a typed delimiter right after a shortcut expands it (the IME decides if it is allowed)
         if (s.length == 1 && QuickText.isDelimiter(s[0]) && out.expand(s)) {
-            refreshSuggestion()
+            refreshSuggestion() // the shortcut was just replaced: clear the toolbar suggestion right away
             return
         }
         val st = Prefs.getI(context, "textstyle", 0)
         out.commit(if (st != 0) TextStyles.convert(st, s) else s)
-        refreshSuggestion()
+        scheduleSuggestion()
     }
 
     override fun onAction(a: Int) {
@@ -731,7 +743,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             } else {
                 out.setComposing(Singlish.convert(singBuf.toString()))
             }
-            refreshSuggestion()
+            scheduleSuggestion()
             return
         }
         if (a != KeyboardView.DEL && a != KeyboardView.STATUS) flushSinglish()
@@ -739,20 +751,20 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.DEL -> if (routed()) (if (quickOpen) quick.backspace() else panel.backspace()) else {
                 quickSuppress = false
                 out.del()
-                refreshSuggestion()
+                scheduleSuggestion()
             }
             KeyboardView.ENTER -> if (routed()) (if (quickOpen) quick.enter() else panel.enter()) else {
                 quickSuppress = false
                 out.enter()
-                refreshSuggestion()
+                scheduleSuggestion()
             }
             KeyboardView.LEFT -> if (!routed()) {
                 out.cursor(-1)
-                refreshSuggestion()
+                scheduleSuggestion()
             }
             KeyboardView.RIGHT -> if (!routed()) {
                 out.cursor(1)
-                refreshSuggestion()
+                scheduleSuggestion()
             }
             KeyboardView.TOOLS -> openTools()
             KeyboardView.SUGGEST -> {

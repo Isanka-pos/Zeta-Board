@@ -119,7 +119,8 @@ class ZetaIME : InputMethodService() {
             if (!QuickRepo.hasEnabled()) return null
             val ic = currentInputConnection ?: return null
             return try {
-                if (!ic.getSelectedText(0).isNullOrEmpty()) return null
+                // the selection is already known from onUpdateSelection: no extra round trip to the app while nothing is selected
+                if (selStart != selEnd && !ic.getSelectedText(0).isNullOrEmpty()) return null
                 val before = ic.getTextBeforeCursor(QuickText.MAX_SC + 2, 0) ?: return null
                 val tok = QuickText.tokenAtEnd(before) ?: return null
                 QuickRepo.lookup(tok)
@@ -316,6 +317,7 @@ class ZetaIME : InputMethodService() {
     }
 
     override fun onDestroy() {
+        KeyClick.release()
         cm?.removePrimaryClipChangedListener(clipListener)
         host?.closeClipboard()
         host?.closeStickers()
@@ -339,10 +341,19 @@ class ZetaIME : InputMethodService() {
         selStart = newSelStart
         selEnd = newSelEnd
         host?.onSelectionChanged()
-        host?.refreshSuggestion()
+        host?.scheduleSuggestion()
     }
 
     override fun onCreateInputView(): View {
+        val tr = Perf.begin("keyboard_view_create")
+        try {
+            return buildInputView()
+        } finally {
+            Perf.end(tr)
+        }
+    }
+
+    private fun buildInputView(): View {
         val h = KeyboardHost(this, output)
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.onSecure = { on -> ScreenGuard.setSecure(window?.window, on && ScreenGuard.blocking(this)) }
@@ -366,6 +377,15 @@ class ZetaIME : InputMethodService() {
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        val tr = Perf.begin("keyboard_start_input")
+        try {
+            startInput(info, restarting)
+        } finally {
+            Perf.end(tr)
+        }
+    }
+
+    private fun startInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         val h = host ?: return
         val t = info?.inputType ?: 0
@@ -401,6 +421,7 @@ class ZetaIME : InputMethodService() {
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        Perf.flushDraw()
         host?.flushSinglish()
         host?.closeClipboard()
         host?.closeStickers()

@@ -80,4 +80,5 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-crashlytics")
     implementation("com.google.firebase:firebase-config")
+    implementation("com.google.firebase:firebase-perf")
 }

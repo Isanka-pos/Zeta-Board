@@ -143,6 +143,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private val spdPlus = RectF()
     private val spdDone = RectF()
     private val bannerRect = RectF()
+    private val bannerTf: Typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+    private var bnAvail = -1f
+    private var bnTs = 0f
+    private var bnTextW = 0f
     private val WS = Regex("\\s+")
     private var bgGrad: LinearGradient? = null
     private var bgGradH = 0
@@ -614,6 +618,12 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private fun baselineE(cy: Float, pp: Paint = ep): Float = cy - (pp.descent() + pp.ascent()) / 2f
 
     override fun onDraw(c: Canvas) {
+        val t0 = System.nanoTime()
+        drawAll(c)
+        Perf.draw(System.nanoTime() - t0)
+    }
+
+    private fun drawAll(c: Canvas) {
         val t = theme
         val bs = bgScaled
         p.style = Paint.Style.FILL
@@ -659,7 +669,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         if (menuOpen) drawMenu(c)
         if ((rgb and 2) != 0) drawBorder(c)
         if (rgb != 0 && isShown) postInvalidateOnAnimation()
-        else if ((t.fx != 0 || speedOpen) && isShown) postInvalidateDelayed(33)
+        else if ((t.fx != 0 || speedOpen) && isShown) postInvalidateDelayed(40)
     }
 
     private fun withA(color: Int, a: Int): Int = (color and 0x00FFFFFF) or (a shl 24)
@@ -945,21 +955,28 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val t = theme
         val h = toolH
         val savedTf = tp.typeface
-        tp.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        tp.typeface = bannerTf
         tp.textAlign = Paint.Align.LEFT
         tp.letterSpacing = 0f
         val padIn = dp(7f)
         // the pill NEVER grows past the space between the logo and the toolbar icons
         val maxPill = (right - left).coerceAtLeast(dp(48f))
         val avail = (maxPill - padIn * 2f).coerceAtLeast(dp(28f))
-        // size the text so the longest line fits when there is room; never smaller than 9dp (readable)
-        var ts = dp(12f)
-        tp.textSize = ts
-        while (tp.measureText(TypeBanner.WIDEST) > avail && ts > dp(9f)) {
-            ts -= dp(0.5f)
-            tp.textSize = ts
+        // size the text so the longest line fits when there is room; never smaller than 9dp (readable). Measured once per width, not every frame.
+        if (avail != bnAvail) {
+            var ts0 = dp(12f)
+            tp.textSize = ts0
+            while (tp.measureText(TypeBanner.WIDEST) > avail && ts0 > dp(9f)) {
+                ts0 -= dp(0.5f)
+                tp.textSize = ts0
+            }
+            bnTs = ts0
+            bnTextW = tp.measureText(TypeBanner.WIDEST)
+            bnAvail = avail
         }
-        val textW = tp.measureText(TypeBanner.WIDEST)
+        val ts = bnTs
+        tp.textSize = ts
+        val textW = bnTextW
         val pillW = minOf(textW + padIn * 2f, maxPill)
         val pillH = dp(26f)
         rect.set(left, (h - pillH) / 2f, left + pillW, (h + pillH) / 2f)
@@ -1226,10 +1243,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun feedback() {
         if (haptic) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-        if (sound) {
-            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            am.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, 0.5f)
-        }
+        if (sound) KeyClick.play(context)
     }
 
     private fun down(id: Int, x: Float, y: Float) {
