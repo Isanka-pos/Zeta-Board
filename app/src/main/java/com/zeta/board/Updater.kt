@@ -11,14 +11,27 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.core.content.pm.PackageInfoCompat
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 
 object Updater {
 
-    class Info(val code: Long, val name: String, val notes: String, val apkUrl: String)
+    /** A small patch that turns one older version into the newest one (made by GitHub Actions). */
+    class Patch(val url: String, val size: Long)
+
+    class Info(
+        val code: Long,
+        val name: String,
+        val notes: String,
+        val apkUrl: String,
+        val sha256: String = "",
+        val patches: Map<Long, Patch> = emptyMap()
+    )
 
     class Task {
         @Volatile
@@ -36,6 +49,18 @@ object Updater {
     fun currentName(c: Context): String = c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: "1.0"
 
     var dialogOpen = false
+
+    /** True while the app's own screen is in front (set by MainActivity). Used to decide between installing right away and a notification. */
+    @Volatile
+    var foreground = false
+
+    /** A finished download that is newer than the installed version and still intact, or null. */
+    fun readyApk(c: Context): File? {
+        val f = File(File(c.applicationContext.cacheDir, "updates"), "ZetaBoard.apk")
+        if (!isValidApk(c, f)) return null
+        val pi = c.packageManager.getPackageArchiveInfo(f.path, 0) ?: return null
+        return if (PackageInfoCompat.getLongVersionCode(pi) > currentCode(c)) f else null
+    }
 
     // the update dialog currently on screen (dismissed when the activity is destroyed)
     var dialog: Dialog? = null
@@ -61,7 +86,19 @@ object Updater {
 
     private fun fromJson(text: String): Info {
         val j = JSONObject(text)
-        return Info(j.getLong("versionCode"), j.optString("versionName", ""), j.optString("notes", ""), j.getString("apkUrl"))
+        val patches = HashMap<Long, Patch>()
+        val po = j.optJSONObject("patches")
+        if (po != null) {
+            val keys = po.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                val from = k.toLongOrNull() ?: continue
+                val o = po.optJSONObject(k) ?: continue
+                val url = o.optString("url", "")
+                if (url.isNotEmpty()) patches[from] = Patch(url, o.optLong("size", 0L))
+            }
+        }
+        return Info(j.getLong("versionCode"), j.optString("versionName", ""), j.optString("notes", ""), j.getString("apkUrl"), j.optString("apkSha256", ""), patches)
     }
 
     private fun fromApi(text: String): Info {
@@ -107,7 +144,7 @@ object Updater {
             var err: String? = null
             try {
                 val l = fetchLatest()
-                if (l.code > currentCode(app)) info = Info(l.code, l.name.ifBlank { "1.0." + l.code }, l.notes, l.apkUrl)
+                if (l.code > currentCode(app)) info = Info(l.code, l.name.ifBlank { "1.0." + l.code }, l.notes, l.apkUrl, l.sha256, l.patches)
             } catch (e: Exception) {
                 err = e.message ?: e.javaClass.simpleName
             }
@@ -134,6 +171,75 @@ object Updater {
         return pi.packageName == c.packageName
     }
 
+    /** Downloads [url] into [sink]. Reports (downloadedBytes, totalBytes). Throws on any problem or when cancelled. */
+    private fun httpDownload(url: String, task: Task, sink: OutputStream, report: (Long, Long) -> Unit) {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = 15000
+            conn.readTimeout = 15000
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "ZetaBoard")
+            val http = conn.responseCode
+            if (http != 200) throw IllegalStateException("HTTP $http")
+            val total = conn.contentLengthLong
+            var got = 0L
+            var last = 0L
+            conn.inputStream.use { input ->
+                val buf = ByteArray(32 * 1024)
+                while (true) {
+                    if (task.cancelled) throw InterruptedException()
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    sink.write(buf, 0, n)
+                    got += n
+                    val now = System.currentTimeMillis()
+                    if (now - last > 120) {
+                        last = now
+                        report(got, total)
+                    }
+                }
+            }
+            if (total > 0 && got != total) throw IllegalStateException("incomplete download")
+            report(got, total)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /**
+     * Small update: downloads only the patch for the installed version and rebuilds the new apk from the
+     * apk that is already on the phone. Returns false when no patch is available or anything goes wrong,
+     * so the caller can fall back to the normal full download.
+     */
+    private fun tryDelta(app: Context, url: String, out: File, task: Task, report: (Long, Long) -> Unit): Boolean {
+        val ai = app.applicationInfo
+        if (ai.splitSourceDirs?.isNotEmpty() == true) return false
+        val base = File(ai.sourceDir)
+        if (!base.exists()) return false
+        val latest = try {
+            fetchLatest()
+        } catch (e: Exception) {
+            return false
+        }
+        if (latest.apkUrl != url || latest.sha256.isEmpty()) return false
+        val patch = latest.patches[currentCode(app)] ?: return false
+        if (patch.size <= 0L || patch.size > 100L * 1024 * 1024) return false
+        try {
+            val bos = ByteArrayOutputStream(patch.size.toInt())
+            httpDownload(patch.url, task, bos, report)
+            DeltaPatch.apply(base, bos.toByteArray(), out) { task.cancelled }
+            if (DeltaPatch.sha256(out) != latest.sha256.lowercase(Locale.US)) throw IllegalStateException("patched apk does not match")
+            if (!isValidApk(app, out)) throw IllegalStateException("patched apk is invalid")
+            return true
+        } catch (e: InterruptedException) {
+            throw e
+        } catch (e: Exception) {
+            Crash.log("deltaUpdate", e)
+            out.delete()
+            return false
+        }
+    }
+
     /** onProgress(percent, downloadedBytes, totalBytes); onDone(file or null on failure/cancel). Both run on the main thread. */
     fun download(
         c: Context,
@@ -147,48 +253,30 @@ object Updater {
         Thread {
             val ptr = Perf.begin("update_download")
             val out = File(dir, "ZetaBoard.apk")
+            var lastTotal = 0L
+            var lastGot = 0L
+            val report: (Long, Long) -> Unit = { got, total ->
+                lastGot = got
+                lastTotal = total
+                val pct = if (total > 0) (got * 100 / total).toInt() else 0
+                main.post { onProgress(pct, got, total) }
+            }
             try {
                 dir.mkdirs()
                 out.delete()
-                val conn = URL(url).openConnection() as HttpURLConnection
-                conn.connectTimeout = 15000
-                conn.readTimeout = 15000
-                conn.instanceFollowRedirects = true
-                conn.setRequestProperty("User-Agent", "ZetaBoard")
-                val http = conn.responseCode
-                if (http != 200) {
-                    conn.disconnect()
-                    throw IllegalStateException("HTTP $http")
+                var result = "ok"
+                if (tryDelta(app, url, out, task, report)) {
+                    result = "ok_delta"
+                } else {
+                    out.delete()
+                    FileOutputStream(out).use { fos -> httpDownload(url, task, fos, report) }
+                    if (!isValidApk(app, out)) throw IllegalStateException("invalid apk")
                 }
-                val total = conn.contentLengthLong
-                var got = 0L
-                var last = 0L
-                conn.inputStream.use { input ->
-                    FileOutputStream(out).use { fos ->
-                        val buf = ByteArray(32 * 1024)
-                        while (true) {
-                            if (task.cancelled) throw InterruptedException()
-                            val n = input.read(buf)
-                            if (n < 0) break
-                            fos.write(buf, 0, n)
-                            got += n
-                            val now = System.currentTimeMillis()
-                            if (now - last > 120) {
-                                last = now
-                                val pct = if (total > 0) (got * 100 / total).toInt() else 0
-                                val g = got
-                                main.post { onProgress(pct, g, total) }
-                            }
-                        }
-                    }
-                }
-                conn.disconnect()
-                if (total > 0 && got != total) throw IllegalStateException("incomplete download")
-                if (!isValidApk(app, out)) throw IllegalStateException("invalid apk")
-                val g = got
-                Perf.end(ptr, "ok")
+                val g = lastGot
+                val t = lastTotal
+                Perf.end(ptr, result)
                 main.post {
-                    onProgress(100, g, total)
+                    onProgress(100, g, t)
                     onDone(out)
                 }
             } catch (e: Exception) {

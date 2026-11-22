@@ -126,4 +126,17 @@ object Singlish {
         }
         return sb.toString()
     }
+
+    /**
+     * The Sinhala letter that the key [c] gives (shown as a small hint on the key). [upper] = Shift is on.
+     * Null for keys that give no Sinhala (q, z, digits, punctuation).
+     */
+    fun hint(c: Char, upper: Boolean): String? {
+        if (!isLetter(c)) return null
+        val ch = if (upper) c.uppercaseChar() else c.lowercaseChar()
+        var r = convert(ch.toString())
+        if (r.endsWith(HAL)) r = r.dropLast(1)
+        if (r.isEmpty() || r[0] < '\u0D80') return null
+        return r
+    }
 }

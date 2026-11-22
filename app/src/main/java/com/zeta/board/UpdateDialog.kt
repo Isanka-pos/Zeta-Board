@@ -167,13 +167,81 @@ object UpdateDialog {
         btnsLp.topMargin = dp(18)
         root.addView(btns, btnsLp)
 
-        var task: Updater.Task? = null
         var apk: File? = null
+        var starting = false
+        var autoInstalled = false
+        var unlisten: (() -> Unit)? = null
 
         fun mb(b: Long) = String.format(Locale.US, "%.1f", b / 1048576.0)
 
+        // a finished or failed download of an older try must not show up as if it were this one
+        if (UpdateJob.state == UpdateJob.S.FAILED) UpdateJob.state = UpdateJob.S.IDLE
+        if (UpdateJob.state == UpdateJob.S.DONE && Updater.readyApk(a) == null) UpdateJob.state = UpdateJob.S.IDLE
+        // already downloaded earlier (in the background): show the Install button, do not start the installer by itself
+        if (UpdateJob.state == UpdateJob.S.DONE) autoInstalled = true
+
+        fun downloading(): Boolean = starting || (UpdateJob.code == info.code && UpdateJob.state == UpdateJob.S.RUNNING)
+
+        /** Draws the window from what the background download is doing (it keeps going when this window is closed). */
+        fun render() {
+            if (!dialog.isShowing) return
+            val same = UpdateJob.code == info.code
+            if (starting && same && UpdateJob.state != UpdateJob.S.IDLE) starting = false
+            val st = UpdateJob.state
+            when {
+                downloading() -> {
+                    prog.visibility = View.VISIBLE
+                    progLabel.text = "Downloading update..."
+                    val pct = if (same && st == UpdateJob.S.RUNNING) UpdateJob.pct else 0
+                    bar.progress = pct
+                    progPct.text = "$pct%"
+                    val total = if (same) UpdateJob.total else 0L
+                    val got = if (same) UpdateJob.got else 0L
+                    progMb.text = if (total > 0) mb(got) + " / " + mb(total) + " MB" else mb(got) + " MB"
+                    later.text = "Cancel"
+                    update.text = if (force) "Downloading..." else "Hide \u2022 keep downloading"
+                    update.alpha = if (force) 0.6f else 1f
+                    dialog.setCancelable(false)
+                }
+                same && st == UpdateJob.S.DONE && UpdateJob.file != null -> {
+                    val f = UpdateJob.file
+                    apk = f
+                    prog.visibility = View.VISIBLE
+                    bar.progress = 100
+                    progPct.text = "100%"
+                    progLabel.text = "Download complete"
+                    update.alpha = 1f
+                    update.text = "Install"
+                    later.text = "Later"
+                    dialog.setCancelable(!force)
+                    if (f != null && !autoInstalled && Updater.foreground) {
+                        autoInstalled = true
+                        Updater.install(a, f)
+                    }
+                }
+                same && st == UpdateJob.S.FAILED -> {
+                    prog.visibility = View.VISIBLE
+                    progLabel.text = "Download failed"
+                    update.alpha = 1f
+                    update.text = "Retry"
+                    later.text = "Later"
+                    dialog.setCancelable(!force)
+                    Toast.makeText(a, "Download failed. Check your internet.", Toast.LENGTH_SHORT).show()
+                    UpdateJob.state = UpdateJob.S.IDLE
+                }
+                else -> {
+                    update.alpha = 1f
+                    later.text = "Later"
+                    dialog.setCancelable(!force)
+                }
+            }
+        }
+
         later.setOnClickListener {
-            task?.cancelled = true
+            if (downloading()) {
+                starting = false
+                UpdateService.cancel(a)
+            }
             dialog.dismiss()
         }
 
@@ -183,47 +251,28 @@ object UpdateDialog {
                 Updater.install(a, ready)
                 return@setOnClickListener
             }
-            if (task != null) return@setOnClickListener
-            prog.visibility = View.VISIBLE
-            progLabel.text = "Downloading update..."
-            bar.progress = 0
-            progPct.text = "0%"
-            progMb.text = "0.0 MB"
-            later.text = "Cancel"
-            update.text = "Downloading..."
-            update.alpha = 0.6f
-            dialog.setCancelable(false)
-            task = Updater.download(a, info.apkUrl, { pct, got, total ->
-                if (dialog.isShowing) {
-                    bar.progress = pct
-                    progPct.text = "$pct%"
-                    progMb.text = if (total > 0) mb(got) + " / " + mb(total) + " MB" else mb(got) + " MB"
-                }
-            }, { f ->
-                if (dialog.isShowing) {
-                    task = null
-                    update.alpha = 1f
-                    dialog.setCancelable(!force)
-                    later.text = "Later"
-                    if (f == null) {
-                        progLabel.text = "Download failed"
-                        update.text = "Retry"
-                        Toast.makeText(a, "Download failed. Check your internet.", Toast.LENGTH_SHORT).show()
-                    } else {
-                        apk = f
-                        progLabel.text = "Download complete"
-                        update.text = "Install"
-                        Updater.install(a, f)
-                    }
-                }
-            })
+            if (downloading()) {
+                // "Hide": the download goes on in the background and a notification shows when it is ready
+                if (!force) dialog.dismiss()
+                return@setOnClickListener
+            }
+            try {
+                UpdateJob.state = UpdateJob.S.IDLE
+                starting = true
+                UpdateService.start(a, info)
+            } catch (e: Exception) {
+                starting = false
+                Toast.makeText(a, "Could not start the download", Toast.LENGTH_SHORT).show()
+            }
+            render()
         }
 
         if (force) later.visibility = View.GONE
         dialog.setContentView(root)
         ScreenGuard.secure(dialog.window)
+        unlisten = UpdateJob.listen { render() }
         dialog.setOnDismissListener {
-            task?.cancelled = true
+            unlisten?.invoke()
             Updater.dialogOpen = false
             Updater.dialog = null
         }
@@ -231,6 +280,7 @@ object UpdateDialog {
         Updater.dialog = dialog
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         dialog.show()
+        render()
         dialog.window?.setLayout((a.resources.displayMetrics.widthPixels * 0.92f).toInt(), WRAP)
     }
 }
