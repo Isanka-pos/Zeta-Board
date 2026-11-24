@@ -206,6 +206,7 @@ class ThemeStoreActivity : Activity() {
             Prefs.setI(this, "theme", i)
             Toast.makeText(this, th.name + " applied", Toast.LENGTH_SHORT).show()
         }
+        Stats.event(this, "theme_apply", th.name)
         refreshAll()
     }
 

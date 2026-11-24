@@ -282,6 +282,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     override fun onToolRun(id: Int) {
         // the theme button changes the look right here, so the list stays open; everything else leaves it first
         if (id != Tools.THEME) closeTools()
+        Stats.event(context, "tool", id.toString())
         kv.runTool(id)
     }
 

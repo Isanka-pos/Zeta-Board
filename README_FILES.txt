@@ -1,6 +1,7 @@
 Zeta Board - changed and new files only
 
 NEW
+  app/src/main/java/com/zeta/board/Stats.kt        anonymous usage stats client (off until stats_url is set in Remote Config)
   .github/workflows/apply-zip.yml   auto-unpacks a zip uploaded to updates/ and releases the full update
   updates/README.txt                the folder you upload zips into
 
@@ -8,6 +9,7 @@ CHANGED
   app/src/main/java/com/zeta/board/RemoteCfg.kt   new_updates_on switch
   app/src/main/java/com/zeta/board/Updater.kt     holds back updates while new_updates_on = false
   app/src/main/java/com/zeta/board/Push.kt        ignores the instant update push while held
+  app/src/main/java/com/zeta/board/ThemeStoreActivity.kt, WallpaperStore.kt, KeyboardHost.kt   usage events (theme, wallpaper, tool)
   REMOTE_CONFIG.md, CHANGELOG.txt
   .github/workflows/build.yml       ignores updates/ pushes; manual run has "full_only" and "silent" switches
   .github/scripts/make_patches.py   full_only support

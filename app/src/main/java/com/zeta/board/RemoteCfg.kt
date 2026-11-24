@@ -20,6 +20,8 @@ object RemoteCfg {
     const val PERF_ON = "perf_on"
     const val UPDATE_ALERTS = "update_alerts_on"
     const val NEW_UPDATES = "new_updates_on"
+    const val STATS_URL = "stats_url"
+    const val STATS_KEY = "stats_key"
 
     /** tool id -> remote key (true = tool works). Settings, Theme, Text style and Emoji can never be switched off. */
     private val toolKeys = mapOf(
@@ -43,6 +45,8 @@ object RemoteCfg {
         put(PERF_ON, true)
         put(UPDATE_ALERTS, true)
         put(NEW_UPDATES, true)
+        put(STATS_URL, "")
+        put(STATS_KEY, "")
         for (k in toolKeys.values) put(k, true)
     }
 
@@ -61,7 +65,7 @@ object RemoteCfg {
             applyBanner()
         } catch (e: Throwable) {
         }
-        refresh {}
+        refresh { Stats.open(ctx) }
     }
 
     /** Downloads new values (a no-op within 15 minutes of the last download) and activates them. [done] runs on the main thread. */
@@ -137,6 +141,12 @@ object RemoteCfg {
 
     /** Emoji Mix server address: the console value when it is a valid https address, otherwise the one built into the app. */
     fun emojimixUrl(): String = httpsOrNull(str(EMOJIMIX_URL)) ?: BuildConfig.EMOJIMIX_URL.trimEnd('/')
+
+    /** Address of the stats dashboard project (https://your-project.vercel.app), or "" = statistics are off. */
+    fun statsUrl(): String = httpsOrNull(str(STATS_URL)) ?: ""
+
+    /** Shared key the stats server expects in the x-app-key header (set the same value as APP_KEY on Vercel). */
+    fun statsKey(): String = str(STATS_KEY).trim().take(100)
 
     /** Wallpaper server address from the console, or "" to keep the built-in behaviour. */
     fun wallpaperUrl(): String = httpsOrNull(str(WALLPAPER_URL)) ?: BuildConfig.WALLPAPER_URL

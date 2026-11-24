@@ -293,6 +293,7 @@ object WallpaperStore {
             } finally {
                 tmp.delete()
             }
+            if (err == null) Stats.event(app, "wallpaper_apply", w.id)
             main.post { onDone(err) }
         }.start()
     }
