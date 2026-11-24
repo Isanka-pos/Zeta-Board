@@ -1,16 +1,6 @@
 {
   "items": [
     {
-      "id": "shinobi",
-      "name": "Shinobi",
-      "category": "Art",
-      "thumb": "/files/shinobi_thumb.jpg",
-      "full": "/files/shinobi.jpg",
-      "width": 736,
-      "height": 461,
-      "size": 51672
-    },
-    {
       "id": "live_vegeta",
       "name": "Vegeta Green Aura",
       "category": "Live",

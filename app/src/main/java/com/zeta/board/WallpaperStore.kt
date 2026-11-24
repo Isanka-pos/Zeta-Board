@@ -169,6 +169,8 @@ object WallpaperStore {
             val isVideo = o.optString("type", "").equals("video", ignoreCase = true) || full.lowercase().endsWith(".mp4")
             // only the server's own /files/ paths are accepted
             if (id.isEmpty() || !thumb.startsWith("/files/") || !full.startsWith("/files/")) continue
+            // the old "Art" section (Shinobi) was removed from the store; a saved copy of the list must not bring it back
+            if (o.optString("category", "").equals("Art", ignoreCase = true) || id == "shinobi") continue
             out.add(
                 Wallpaper(
                     id,

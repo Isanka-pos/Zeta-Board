@@ -69,7 +69,18 @@ object UpdateDialog {
         root.setPadding(dp(20), dp(24), dp(20), dp(20))
         root.background = shape(Pal.CARD, 28, Pal.PURPLE, 1)
 
-        root.addView(LogoBadge(a), LinearLayout.LayoutParams(dp(72), dp(72)))
+        // everything except the buttons scrolls, so the buttons always stay on the screen (also while the progress card shows)
+        val body = LinearLayout(a)
+        body.orientation = LinearLayout.VERTICAL
+        body.gravity = Gravity.CENTER_HORIZONTAL
+        val maxBody = (a.resources.displayMetrics.heightPixels * 0.9f).toInt() - dp(48 + 18 + 44 + 8)
+        val bodyScroll = MaxScroll(a, maxBody)
+        bodyScroll.isVerticalScrollBarEnabled = false
+        bodyScroll.overScrollMode = View.OVER_SCROLL_NEVER
+        bodyScroll.addView(body, ViewGroup.LayoutParams(MATCH, WRAP))
+        root.addView(bodyScroll, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        body.addView(LogoBadge(a), LinearLayout.LayoutParams(dp(72), dp(72)))
 
         val pill = tv("NEW UPDATE AVAILABLE", 11f, Color.WHITE, true)
         pill.letterSpacing = 0.08f
@@ -77,26 +88,26 @@ object UpdateDialog {
         pill.background = gradient(20)
         val pillLp = LinearLayout.LayoutParams(WRAP, WRAP)
         pillLp.topMargin = dp(16)
-        root.addView(pill, pillLp)
+        body.addView(pill, pillLp)
 
         val title = tv("Zeta Board Update Ready!", 21f, Color.WHITE, true)
         title.gravity = Gravity.CENTER
         val titleLp = LinearLayout.LayoutParams(MATCH, WRAP)
         titleLp.topMargin = dp(12)
-        root.addView(title, titleLp)
+        body.addView(title, titleLp)
 
         val chip = tv("v" + Updater.currentName(a) + "  \u2192  v" + info.name, 14f, Pal.CYAN, true)
         chip.setPadding(dp(18), dp(8), dp(18), dp(8))
         chip.background = shape(Color.TRANSPARENT, 20, Pal.CYAN, 1)
         val chipLp = LinearLayout.LayoutParams(WRAP, WRAP)
         chipLp.topMargin = dp(12)
-        root.addView(chip, chipLp)
+        body.addView(chip, chipLp)
 
         val warn = tv("\u26A0  Please update soon: older versions may have bugs that are already fixed.", 12f, Color.parseColor("#F59E0B"), false)
         warn.gravity = Gravity.CENTER
         val warnLp = LinearLayout.LayoutParams(MATCH, WRAP)
         warnLp.topMargin = dp(12)
-        root.addView(warn, warnLp)
+        body.addView(warn, warnLp)
 
         // heads-up about the Google Play Protect screen that Android shows for apps that are not from the Play Store
         val pp = tv("\u2139  Android may show \"Play Protect: App scan recommended\". This is normal for apps outside the Play Store. Tap \"Scan app\" (or More details \u2192 Install without scanning), then Install.", 12f, Pal.CYAN, false)
@@ -106,7 +117,7 @@ object UpdateDialog {
         pp.background = shape(Color.TRANSPARENT, 12, Pal.CYAN, 1)
         val ppLp = LinearLayout.LayoutParams(MATCH, WRAP)
         ppLp.topMargin = dp(10)
-        root.addView(pp, ppLp)
+        body.addView(pp, ppLp)
 
         val notes = LinearLayout(a)
         notes.orientation = LinearLayout.VERTICAL
@@ -116,12 +127,10 @@ object UpdateDialog {
         body.setLineSpacing(0f, 1.2f)
         body.setPadding(0, dp(8), 0, 0)
         notes.addView(body)
-        val scroll = MaxScroll(a, dp(200))
-        scroll.addView(notes)
-        scroll.background = shape(Pal.BG, 16, Pal.STROKE, 1)
-        val scrollLp = LinearLayout.LayoutParams(MATCH, WRAP)
-        scrollLp.topMargin = dp(16)
-        root.addView(scroll, scrollLp)
+        notes.background = shape(Pal.BG, 16, Pal.STROKE, 1)
+        val notesLp = LinearLayout.LayoutParams(MATCH, WRAP)
+        notesLp.topMargin = dp(16)
+        body.addView(notes, notesLp)
 
         // progress card (hidden until download starts)
         val prog = LinearLayout(a)
@@ -148,7 +157,7 @@ object UpdateDialog {
         prog.addView(progMb)
         val progLp = LinearLayout.LayoutParams(MATCH, WRAP)
         progLp.topMargin = dp(14)
-        root.addView(prog, progLp)
+        body.addView(prog, progLp)
 
         // buttons
         val later = tv("Later", 15f, Color.WHITE, true)
@@ -191,6 +200,7 @@ object UpdateDialog {
             when {
                 downloading() -> {
                     prog.visibility = View.VISIBLE
+                    bodyScroll.post { bodyScroll.fullScroll(View.FOCUS_DOWN) }
                     progLabel.text = "Downloading update..."
                     val pct = if (same && st == UpdateJob.S.RUNNING) UpdateJob.pct else 0
                     bar.progress = pct

@@ -67,7 +67,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val STATUS_INFO = 1
         const val STATUS_ERROR = 2
         private const val TOOL_SUG = 99
-        private const val TOOL_WORD0 = 200 // 200..202: the three word suggestions
+        private const val TOOL_WORD0 = 200 // 200..204: the word suggestions (up to five)
+        private const val MAX_WORDS = 5
         private const val TOOL_BANNER = 98
         private const val TOOL_SPD_DONE = 97
         private const val TOOL_SPD_PLUS = 96
@@ -129,6 +130,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private val emojiCache = HashMap<Int, List<String>>()
     private var textStyle = 0
     private var styleList: List<Int> = listOf(0)
+    private var styleListFont = -2
+    private var reloadSig = ""
     private val brandTf: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     private var keyFontSel = -1
     private var emojiPage = 0
@@ -341,8 +344,24 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private val repeat = object : Runnable {
         override fun run() {
+            // holding backspace: the flower effect starts with the first repeat
+            if (!delHold) {
+                delHold = true
+                if (!latinOnly) onDelHold?.invoke(true)
+            }
             listener?.onAction(DEL)
-            handler.postDelayed(this, 45)
+            handler.postDelayed(this, 38)
+        }
+    }
+
+    /** True while backspace is held down and repeating; the host plays the flower effect. */
+    var onDelHold: ((Boolean) -> Unit)? = null
+    private var delHold = false
+
+    private fun endDelHold() {
+        if (delHold) {
+            delHold = false
+            if (!latinOnly) onDelHold?.invoke(false)
         }
     }
 
@@ -372,8 +391,11 @@ class KeyboardView(ctx: Context) : View(ctx) {
             tp.typeface = KbFonts.preset(ksel)
         }
         textStyle = Prefs.getI(c, "textstyle", 0)
-        // only offer styles this phone can really draw (no empty boxes)
-        styleList = TextStyles.names.indices.filter { TextStyles.supported(it, tp) }
+        // only offer styles this phone can really draw (no empty boxes); checked again only when the key font changed
+        if (styleListFont != ksel) {
+            styleList = TextStyles.names.indices.filter { TextStyles.supported(it, tp) }
+            styleListFont = ksel
+        }
         if (textStyle !in styleList) textStyle = 0
         videoOn = KbVideo.has(c)
         bannerSpeed = Prefs.getI(c, "bannerspeed", TypeBanner.SPEED_DEF).coerceIn(TypeBanner.SPEED_MIN, TypeBanner.SPEED_MAX)
@@ -385,6 +407,14 @@ class KeyboardView(ctx: Context) : View(ctx) {
             buildBg()
         }
         syncMode()
+        // nothing that shapes the keys changed since the last time (the usual case when you tap a chat box): no rebuild, no flash
+        val sig = StringBuilder()
+        sig.append(numRow).append(heightPct).append(haptic).append(sound).append(preview).append(pins).append(shape)
+            .append(rgb).append(rgbSpeed).append(bgDim).append(ksel).append(textStyle).append(videoOn).append(bannerSpeed)
+            .append(stamp).append(latinOnly).append(wije).append(hintsOn).append(ep.typeface.hashCode())
+        val sg = sig.toString()
+        if (sg == reloadSig && rows.isNotEmpty()) return
+        reloadSig = sg
         rows = build()
         requestLayout()
         layoutKeys()
@@ -457,8 +487,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun stripOn(): Boolean = statusMsg != null || suggestion != null || words.isNotEmpty()
 
-    /** Shows up to three Sinhala word suggestions on the toolbar (empty list hides them). */
-    fun setWords(list: List<String>) {
+    /** Shows up to five word suggestions on the toolbar (empty list hides them). */
+    fun setWords(full: List<String>) {
+        val list = if (full.size > MAX_WORDS) full.subList(0, MAX_WORDS).toList() else full
         if (list == words) return
         words = list
         if (pressedTool >= TOOL_WORD0 && !wordsShown()) pressedTool = -1
@@ -687,6 +718,20 @@ class KeyboardView(ctx: Context) : View(ctx) {
         d.draw(c)
     }
 
+    /** "ZETA BOARD" in the chosen text style, but only when the phone can draw every letter of it. Otherwise plain text (no empty boxes, no broken flags). */
+    private fun spaceBrand(): String {
+        val plain = "ZETA BOARD"
+        // Flags turn letters into emoji flags: not suitable for a label
+        if (textStyle <= 0 || textStyle == 11) return plain
+        val styled = TextStyles.convert(textStyle, plain)
+        for (ch in plain) {
+            if (ch == ' ') continue
+            val g = TextStyles.convert(textStyle, ch.toString())
+            if (!tp.hasGlyph(g)) return plain
+        }
+        return styled
+    }
+
     private fun baseline(cy: Float): Float = cy - (tp.descent() + tp.ascent()) / 2f
 
     private fun baselineE(cy: Float, pp: Paint = ep): Float = cy - (pp.descent() + pp.ascent()) / 2f
@@ -874,7 +919,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val cw = sugRect.width() / n
         tp.textAlign = Paint.Align.CENTER
         tp.letterSpacing = 0f
-        tp.textSize = dp(17f)
+        tp.textSize = dp(if (n > 3) 15f else 17f)
         for (i in 0 until n) {
             val l = sugRect.left + cw * i
             if (pressedTool == TOOL_WORD0 + i) {
@@ -889,7 +934,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 c.drawRect(l - dp(0.5f), sugRect.top + dp(9f), l + dp(0.5f), sugRect.bottom - dp(9f), p)
             }
             var shown = words[i]
-            val maxW = cw - dp(12f)
+            val maxW = cw - dp(if (n > 3) 8f else 12f)
             val k = tp.breakText(shown, true, maxW, null)
             if (k < shown.length) shown = shown.substring(0, (k - 1).coerceAtLeast(1)) + "\u2026"
             tp.color = t.text
@@ -1293,8 +1338,15 @@ class KeyboardView(ctx: Context) : View(ctx) {
         tp.color = fg
         when {
             k.kind == K_SPACE -> {
-                label = if (layer == 0 && (singlishOn() || wije)) "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD" else TextStyles.convert(textStyle, "ZETA BOARD")
+                label = if (layer == 0 && (singlishOn() || wije)) "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD" else spaceBrand()
+                // a leftover spacing/skew from another drawing step must never change how this label looks
+                tp.letterSpacing = 0f
+                tp.textSkewX = 0f
                 tp.textSize = rh * 0.24f
+                // never wider than the space bar: long or wide styles (Circled, Squared...) shrink to fit
+                val maxW = k.r.width() * 0.86f
+                val mw = tp.measureText(label)
+                if (mw > maxW && mw > 0f) tp.textSize = tp.textSize * (maxW / mw)
                 tp.alpha = 140
             }
             k.kind == K_CHAR -> {
@@ -1407,11 +1459,23 @@ class KeyboardView(ctx: Context) : View(ctx) {
     }
 
     private fun findKey(x: Float, y: Float): Key? {
-        val g = dp(3f)
+        // inside a key: that key. In the gap between keys: the closest key, so a touch never goes to the wrong neighbour.
+        for (row in rows) for (k in row) if (k.r.contains(x, y)) return k
+        val g = dp(5f)
+        var best: Key? = null
+        var bd = Float.MAX_VALUE
         for (row in rows) for (k in row) {
-            if (x >= k.r.left - g && x <= k.r.right + g && y >= k.r.top - g && y <= k.r.bottom + g) return k
+            val dx = if (x < k.r.left) k.r.left - x else if (x > k.r.right) x - k.r.right else 0f
+            val dy = if (y < k.r.top) k.r.top - y else if (y > k.r.bottom) y - k.r.bottom else 0f
+            if (dx <= g && dy <= g) {
+                val d = dx * dx + dy * dy
+                if (d < bd) {
+                    bd = d
+                    best = k
+                }
+            }
         }
-        return null
+        return best
     }
 
     private fun feedback() {
@@ -1422,6 +1486,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private fun down(id: Int, x: Float, y: Float) {
         handler.removeCallbacks(longPress)
         handler.removeCallbacks(repeat)
+        endDelHold()
         activeId = id
         downX = x
         curX = x
@@ -1466,7 +1531,12 @@ class KeyboardView(ctx: Context) : View(ctx) {
         if (theme.fx != 0) fxRain.burst(k.r.centerX())
         if (k.kind == K_DEL) {
             listener?.onAction(DEL)
-            handler.postDelayed(repeat, 400)
+            // the flower effect starts the moment backspace is pressed and goes on while it is held
+            if (!delHold) {
+                delHold = true
+                if (!latinOnly) onDelHold?.invoke(true)
+            }
+            handler.postDelayed(repeat, 350)
         } else if (k.alts.isNotEmpty()) {
             handler.postDelayed(longPress, 380)
         } else if (layer == 4 && k.kind == K_CHAR) {
@@ -1515,6 +1585,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private fun finish(doCommit: Boolean) {
         handler.removeCallbacks(longPress)
         handler.removeCallbacks(repeat)
+        endDelHold()
         val k = pressed
         val tool = pressedTool
         val pm = pressedMenu
@@ -1536,10 +1607,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                     listener?.onText(s)
                     if (layer == 4) Emojis.addRecent(context, s)
                     afterSentence = false
-                    if (shift == 1) {
-                        shift = 0
-                        rebuild()
-                    }
+                    if (shift == 1) shift = 0
                 }
             } else if (layer == 4 && wasSwipe) {
                 if (abs(curX - downX) > dp(50f)) emojiSwipe(if (curX < downX) 1 else -1)
@@ -1580,7 +1648,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 return
             }
         }
-        if (i >= TOOL_WORD0 && i < TOOL_WORD0 + 3) {
+        if (i >= TOOL_WORD0 && i < TOOL_WORD0 + MAX_WORDS) {
             listener?.onWord(i - TOOL_WORD0)
             invalidate()
             return
@@ -1602,19 +1670,13 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 listener?.onText(s)
                 if (layer == 4) Emojis.addRecent(context, s)
                 afterSentence = s == "." || s == "!" || s == "?"
-                if (shift == 1) {
-                    shift = 0
-                    rebuild()
-                }
+                if (shift == 1) shift = 0
             }
             K_SPACE -> {
                 listener?.onText(" ")
                 val auto = afterSentence
                 afterSentence = false
-                if (auto && layer == 0 && shift == 0 && !noAutoCap()) {
-                    shift = 1
-                    rebuild()
-                }
+                if (auto && layer == 0 && shift == 0 && !noAutoCap()) shift = 1
             }
             K_ENTER -> {
                 listener?.onAction(ENTER)
@@ -1624,7 +1686,6 @@ class KeyboardView(ctx: Context) : View(ctx) {
                 val now = SystemClock.uptimeMillis()
                 shift = if (shift == 1 && now - lastShiftTap < 350) 2 else if (shift == 0) 1 else 0
                 lastShiftTap = now
-                rebuild()
             }
             K_PHONETIC -> {
                 // Sinhala typing on or off, with the layout used last (phonetic or Wijesekara)

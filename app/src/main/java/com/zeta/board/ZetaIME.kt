@@ -29,10 +29,13 @@ class ZetaIME : InputMethodService() {
 
         override fun del() {
             val ic = currentInputConnection ?: return
-            val sel = ic.getSelectedText(0)
-            if (!sel.isNullOrEmpty()) {
-                ic.commitText("", 1)
-                return
+            // the selection is already known from onUpdateSelection: skip one round trip to the app per delete
+            if (selStart != selEnd) {
+                val sel = ic.getSelectedText(0)
+                if (!sel.isNullOrEmpty()) {
+                    ic.commitText("", 1)
+                    return
+                }
             }
             // delete a whole emoji (flag, family, skin tone, heart + selector...) in one tap
             val before = ic.getTextBeforeCursor(32, 0)
@@ -55,6 +58,30 @@ class ZetaIME : InputMethodService() {
 
         override fun editorKey(code: Int, select: Boolean) {
             val ic = currentInputConnection ?: return
+            // |< and >| go to the very start / end of the whole text (the Home / End key only reaches the start of the line)
+            if (code == KeyEvent.KEYCODE_MOVE_HOME || code == KeyEvent.KEYCODE_MOVE_END) {
+                try {
+                    var a = selStart
+                    var b = selEnd
+                    val ex = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+                    if (ex != null && ex.selectionStart >= 0) {
+                        a = ex.startOffset + ex.selectionStart
+                        b = ex.startOffset + ex.selectionEnd
+                    }
+                    val lo = minOf(a, b)
+                    val hi = maxOf(a, b)
+                    if (code == KeyEvent.KEYCODE_MOVE_HOME) {
+                        if (select) ic.setSelection(0, hi) else ic.setSelection(0, 0)
+                    } else {
+                        val after = ic.getTextAfterCursor(1000000, 0)?.length ?: 0
+                        val total = hi + after
+                        if (select) ic.setSelection(lo, total) else ic.setSelection(total, total)
+                    }
+                    return
+                } catch (e: Exception) {
+                    Crash.log("editorKeyHomeEnd", e)
+                }
+            }
             try {
                 val now = android.os.SystemClock.uptimeMillis()
                 val meta = if (select) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
@@ -344,6 +371,11 @@ class ZetaIME : InputMethodService() {
     override fun onCreate() {
         super.onCreate()
         ClipRepo.init(this)
+        ClipRepo.warm()
+        KeyClick.warm(this)
+        DeleteFx.warm()
+        WordSuggest.preload(this)
+        EnSuggest.preload(this)
         QuickRepo.init(this)
         val m = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         cm = m
@@ -353,6 +385,7 @@ class ZetaIME : InputMethodService() {
     }
 
     override fun onDestroy() {
+        DeleteFx.release(this)
         KeyClick.release()
         cm?.removePrimaryClipChangedListener(clipListener)
         host?.closeClipboard()
@@ -377,7 +410,7 @@ class ZetaIME : InputMethodService() {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         selStart = newSelStart
         selEnd = newSelEnd
-        host?.onSelectionChanged()
+        host?.onSelectionChanged(candidatesStart, candidatesEnd, newSelStart, newSelEnd)
         host?.scheduleSuggestion()
     }
 
@@ -391,6 +424,8 @@ class ZetaIME : InputMethodService() {
     }
 
     private fun buildInputView(): View {
+        WordSuggest.preload(this)
+        EnSuggest.preload(this)
         val h = KeyboardHost(this, output)
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
         h.onSecure = { on -> ScreenGuard.setSecure(window?.window, on && ScreenGuard.blocking(this)) }
@@ -416,6 +451,16 @@ class ZetaIME : InputMethodService() {
                     View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(hgt, View.MeasureSpec.EXACTLY)
                 )
+                // anything on top of the keyboard (the flower effect) is as big as the keyboard
+                for (i in 2 until childCount) {
+                    val ex = getChildAt(i)
+                    if (ex.visibility != View.GONE) {
+                        ex.measure(
+                            View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(hgt, View.MeasureSpec.EXACTLY)
+                        )
+                    }
+                }
             }
         }
         fun paintFrame(t: KbTheme) {
@@ -429,6 +474,11 @@ class ZetaIME : InputMethodService() {
         }
         frame.addView(v, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         frame.addView(h, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // the backspace flower effect for phones that have not allowed the full-screen version: plays over the keyboard
+        val fx = DelFxView(this)
+        fx.visibility = View.GONE
+        frame.addView(fx, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        DeleteFx.attachInside(fx)
         return frame
     }
 
@@ -462,7 +512,9 @@ class ZetaIME : InputMethodService() {
         if (!restarting) h.cancelWork()
         h.closeTools()
         h.closeEditor()
-        h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
+        // setting the theme repaints every panel: only do it when it really changed
+        val nt = Themes.get(Prefs.getI(this, "theme", 0))
+        if (nt !== h.kv.theme) h.kv.theme = nt
         h.kv.latinOnly = secure
         h.kv.reload()
         video?.sync()
@@ -473,12 +525,23 @@ class ZetaIME : InputMethodService() {
         selStart = info?.initialSelStart ?: 0
         selEnd = info?.initialSelEnd ?: 0
         h.refreshSuggestion(true)
-        captureClip(false)
-        UpdateWatcher.checkSoon(this)
-        RemoteCfg.refresh {}
+        // background chores wait until the keyboard is already on the screen
+        bgHandler.post {
+            captureClip(false)
+            UpdateWatcher.checkSoon(this)
+            val now = System.currentTimeMillis()
+            if (now - lastCfgRefresh > 5 * 60 * 1000L) {
+                lastCfgRefresh = now
+                RemoteCfg.refresh {}
+            }
+        }
     }
 
+    private val bgHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var lastCfgRefresh = 0L
+
     override fun onFinishInputView(finishingInput: Boolean) {
+        DeleteFx.stop()
         Perf.flushDraw()
         host?.flushSinglish()
         host?.closeClipboard()

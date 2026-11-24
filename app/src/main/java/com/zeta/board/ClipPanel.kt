@@ -71,7 +71,9 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
     private var mode = 0 // 0 list, 1 search, 2 edit
     private var typing = false
     private var cursorOn = true
-    private var animateNext = true
+    private var animateNext = false
+    private var lastSig = ""
+    private var renderToken = 0
     private var editing: ClipItem? = null
     private val buffer = StringBuilder()
     private val expanded = HashSet<Long>()
@@ -160,7 +162,8 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
         scroll.visibility = View.VISIBLE
         confirm.visibility = View.GONE
         titleView.text = "Clipboard"
-        animateNext = true
+        animateNext = false
+        lastSig = ""
         vm.onChanged = { render() }
         if (vm.query.isNotEmpty()) vm.search("")
         vm.start()
@@ -168,6 +171,7 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
     }
 
     fun close() {
+        renderToken++
         handler.removeCallbacks(blink)
         typing = false
         cursorOn = false
@@ -359,23 +363,50 @@ class ClipPanel(ctx: Context, private val vm: ClipViewModel, private val cb: Cal
 
     private fun render() {
         if (mode == 2) return
-        list.removeAllViews()
         if (!vm.loaded) return
         val pinned = vm.pinned
         val recent = vm.recent
+        // the same list again (the background refresh after opening): nothing to rebuild, no flicker
+        val sig = StringBuilder()
+        for (x in pinned) sig.append(x.id).append(if (x.pinned) 'p' else 'r').append(x.text.hashCode()).append(',')
+        sig.append('|')
+        for (x in recent) sig.append(x.id).append(x.text.hashCode()).append(',')
+        val sg = sig.toString()
+        if (sg == lastSig && list.childCount > 0) return
+        lastSig = sg
+        renderToken++
+        list.removeAllViews()
         if (pinned.isEmpty() && recent.isEmpty()) {
             list.addView(emptyState(), LinearLayout.LayoutParams(M, M))
             animateNext = false
             return
         }
-        var i = 0
+        // the first cards appear at once, the rest are added a moment later (200 cards in one go made the panel slow to open)
+        val rows = ArrayList<Any>()
         if (pinned.isNotEmpty()) {
-            list.addView(sectionHeader("PINNED", pinned.size, true))
-            for (item in pinned) list.addView(card(item, i++))
+            rows.add("PINNED" to pinned.size)
+            rows.addAll(pinned)
         }
         if (recent.isNotEmpty()) {
-            list.addView(sectionHeader("RECENT CLIPS", recent.size, false))
-            for (item in recent) list.addView(card(item, i++))
+            rows.add("RECENT CLIPS" to recent.size)
+            rows.addAll(recent)
+        }
+        val token = renderToken
+        fun addRows(from: Int, to: Int) {
+            var n = from
+            while (n < to && n < rows.size) {
+                val r = rows[n]
+                if (r is ClipItem) list.addView(card(r, n))
+                else if (r is Pair<*, *>) list.addView(sectionHeader(r.first as String, r.second as Int, r.first == "PINNED"))
+                n++
+            }
+        }
+        val first = 14
+        addRows(0, first)
+        if (rows.size > first) {
+            handler.post {
+                if (token == renderToken && mode != 2) addRows(first, rows.size)
+            }
         }
         animateNext = false
     }

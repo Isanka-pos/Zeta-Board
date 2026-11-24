@@ -104,13 +104,27 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     val kv = KeyboardView(ctx)
     private val vm = ClipViewModel()
-    private val panel = ClipPanel(ctx, vm, this)
-    private val stickers = StickerPanel(ctx, this)
-    private val quick = QuickPanel(ctx, this)
-    private val tools = ToolsPanel(ctx, this)
-    private val editor = TextEditorPanel(ctx, this)
-    private val status = StatusPanel(ctx, this)
-    private val emojiMix = EmojiMixPanel(ctx, this)
+    // The panels are built the first time they are opened, not when the keyboard appears: the keyboard shows up much faster
+    private fun <T : View> lazyPanel(make: () -> T): Lazy<T> = lazy {
+        val v = make()
+        v.visibility = GONE
+        addView(v, indexOfChild(kv).coerceAtLeast(0), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        v
+    }
+    private val panelL = lazyPanel { ClipPanel(ctx, vm, this@KeyboardHost).also { it.applyTheme(kv.theme) } }
+    private val stickersL = lazyPanel { StickerPanel(ctx, this@KeyboardHost).also { it.applyTheme(kv.theme) } }
+    private val quickL = lazyPanel { QuickPanel(ctx, this@KeyboardHost).also { it.applyTheme(kv.theme) } }
+    private val toolsL = lazyPanel { ToolsPanel(ctx, this@KeyboardHost).also { it.applyTheme(kv.theme) } }
+    private val editorL = lazyPanel { TextEditorPanel(ctx, this@KeyboardHost).also { it.applyTheme(kv.theme) } }
+    private val statusL = lazyPanel { StatusPanel(ctx, this@KeyboardHost).also { it.applyTheme(kv.theme) } }
+    private val emojiMixL = lazyPanel { EmojiMixPanel(ctx, this@KeyboardHost).also { it.applyTheme(kv.theme) } }
+    private val panel get() = panelL.value
+    private val stickers get() = stickersL.value
+    private val quick get() = quickL.value
+    private val tools get() = toolsL.value
+    private val editor get() = editorL.value
+    private val status get() = statusL.value
+    private val emojiMix get() = emojiMixL.value
     private var panelOpen = false
     private var stickersOpen = false
     private var quickOpen = false
@@ -129,37 +143,17 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     init {
         orientation = VERTICAL
         kv.listener = this
+        kv.onDelHold = { on -> if (on) DeleteFx.start(context) else DeleteFx.stop() }
         kv.onTheme = {
-            panel.applyTheme(it)
-            stickers.applyTheme(it)
-            quick.applyTheme(it)
-            tools.applyTheme(it)
-            editor.applyTheme(it)
-            status.applyTheme(it)
-            emojiMix.applyTheme(it)
+            if (panelL.isInitialized()) panel.applyTheme(it)
+            if (stickersL.isInitialized()) stickers.applyTheme(it)
+            if (quickL.isInitialized()) quick.applyTheme(it)
+            if (toolsL.isInitialized()) tools.applyTheme(it)
+            if (editorL.isInitialized()) editor.applyTheme(it)
+            if (statusL.isInitialized()) status.applyTheme(it)
+            if (emojiMixL.isInitialized()) emojiMix.applyTheme(it)
         }
-        panel.applyTheme(kv.theme)
-        stickers.applyTheme(kv.theme)
-        quick.applyTheme(kv.theme)
-        tools.applyTheme(kv.theme)
-        editor.applyTheme(kv.theme)
-        status.applyTheme(kv.theme)
-        emojiMix.applyTheme(kv.theme)
-        addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        addView(stickers, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        stickers.visibility = GONE
-        addView(quick, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        quick.visibility = GONE
-        addView(tools, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        tools.visibility = GONE
-        addView(editor, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        editor.visibility = GONE
-        addView(status, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        status.visibility = GONE
-        addView(emojiMix, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        emojiMix.visibility = GONE
         addView(kv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        panel.visibility = GONE
     }
 
     private fun applyHeights() {
@@ -180,12 +174,12 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         panelOpen = true
         typing = false
         applyHeights()
+        panel.open()
         panel.visibility = VISIBLE
         panel.alpha = 0f
-        panel.translationY = 24f * d
-        panel.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        panel.translationY = 10f * d
+        panel.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(90).start()
         kv.visibility = GONE
-        panel.open()
         syncSecure()
     }
 
@@ -219,8 +213,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         editor.open()
         editor.visibility = VISIBLE
         editor.alpha = 0f
-        editor.translationY = 24f * d
-        editor.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        editor.translationY = 10f * d
+        editor.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(90).start()
         kv.visibility = GONE
         refreshSuggestion()
     }
@@ -262,8 +256,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         tools.open()
         tools.visibility = VISIBLE
         tools.alpha = 0f
-        tools.translationY = 24f * d
-        tools.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        tools.translationY = 10f * d
+        tools.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(90).start()
         kv.visibility = GONE
         refreshSuggestion()
     }
@@ -435,6 +429,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
     private fun wordsOn(): Boolean = Prefs.getB(context, "word_suggest", true)
 
     private fun clearWords() {
+        curEn = false
         if (curWords.isEmpty()) return
         curWords = emptyList()
         kv.setWords(curWords)
@@ -445,12 +440,17 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             clearWords()
             return
         }
+        curEn = false
         curWords = WordSuggest.suggest(context, singBuf.toString())
         kv.setWords(curWords)
     }
 
     override fun onWord(i: Int) {
         val w = curWords.getOrNull(i) ?: return
+        if (curEn) {
+            enPick(w)
+            return
+        }
         if (singBuf.isEmpty()) return
         out.setComposing(w)
         out.finishComposing()
@@ -458,6 +458,147 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         singBuf.setLength(0)
         WordSuggest.learn(context, w)
         clearWords()
+        scheduleSuggestion()
+    }
+
+    // ---- English word suggestions ----
+
+    /** The letters of the English word being typed. */
+    private val enWord = StringBuilder()
+
+    /** The last finished word (lower case), when we know it. Used for next-word prediction. */
+    private var enPrev: String? = null
+
+    /** The text we expect right before the cursor (the word, or the last word and what ended it). Checked now and then. */
+    private var enTail = ""
+
+    /** True while the words on the toolbar are English suggestions (not Sinhala ones). */
+    private var curEn = false
+
+    private val enVerify = Runnable { enVerifyNow() }
+
+    private fun enOn(): Boolean =
+        Prefs.getB(context, "en_suggest", true) && out.quickAllowed() && !routed() &&
+            SinMode.current(context) == SinMode.OFF && Prefs.getI(context, "textstyle", 0) == 0
+
+    /** Forgets the current word and hides English suggestions. Cheap when there is nothing to forget. */
+    private fun enReset() {
+        if (enWord.isNotEmpty()) enWord.setLength(0)
+        enPrev = null
+        enTail = ""
+        ui.removeCallbacks(enVerify)
+        if (curEn) {
+            curEn = false
+            curWords = emptyList()
+            kv.setWords(curWords)
+        }
+    }
+
+    private fun enUpdate() {
+        val p = enPrev
+        val list = when {
+            enWord.isNotEmpty() -> EnSuggest.complete(enWord.toString(), 5)
+            p != null && enTail.endsWith(" ") -> EnSuggest.next(p, 5)
+            else -> emptyList()
+        }
+        if (list.isEmpty()) {
+            if (curEn) {
+                curEn = false
+                curWords = emptyList()
+                kv.setWords(curWords)
+            }
+            return
+        }
+        curEn = true
+        curWords = list
+        kv.setWords(list)
+    }
+
+    /** A character was typed (and committed). Tracks the word and updates the suggestions. */
+    private fun enTyped(s: String, fix: Fix?) {
+        if (!enOn()) {
+            enReset()
+            return
+        }
+        if (s.length != 1) {
+            enReset()
+            return
+        }
+        val ch = s[0]
+        val isLetter = ch.isLetter() && ch.code < 0x250
+        if (isLetter || (ch == '\'' && enWord.isNotEmpty())) {
+            if (enWord.length < 40) enWord.append(ch)
+            enTail = enWord.toString()
+            enUpdate()
+            return
+        }
+        // a space, punctuation or symbol ends the word
+        val word = (if (fix != null) fix.fixed else enWord.toString()).trimEnd('\'')
+        val had = word.isNotEmpty()
+        if (had) {
+            EnSuggest.learn(word, enPrev)
+            enPrev = word.lowercase()
+        }
+        enWord.setLength(0)
+        if (ch == '.' || ch == '!' || ch == '?') enPrev = null
+        val tail = if (had) word + s else enTail + s
+        enTail = if (tail.length > 40) tail.substring(tail.length - 40) else tail
+        enUpdate()
+    }
+
+    private fun enDelete() {
+        if (singBuf.isNotEmpty()) return
+        if (!enOn()) {
+            enReset()
+            return
+        }
+        if (enWord.isNotEmpty()) {
+            enWord.setLength(enWord.length - 1)
+            enTail = enWord.toString()
+            enUpdate()
+        } else if (enPrev != null || enTail.isNotEmpty()) {
+            // the word before the cursor is not tracked any more: wait for the next word
+            enReset()
+        }
+    }
+
+    private fun enVerifyNow() {
+        val tail = enTail
+        if (tail.isEmpty()) {
+            if (enWord.isEmpty()) return
+            enReset()
+            return
+        }
+        val before = try {
+            out.textBefore(tail.length)?.toString()
+        } catch (e: Exception) {
+            null
+        }
+        if (before != tail) enReset()
+    }
+
+    /** A suggestion on the toolbar was tapped: finish the word (or add the predicted word) and a space. */
+    private fun enPick(w: String) {
+        if (!enOn()) {
+            enReset()
+            return
+        }
+        val typed = enWord.toString()
+        if (typed.isNotEmpty()) {
+            if (!out.replaceBefore(typed.length, "$w ")) {
+                enReset()
+                return
+            }
+        } else {
+            val needSpace = enTail.isNotEmpty() && !enTail.endsWith(" ") && !enTail.endsWith("\n")
+            out.commit(if (needSpace) " $w " else "$w ")
+        }
+        EnSuggest.learn(w, enPrev)
+        enPrev = w.lowercase()
+        enWord.setLength(0)
+        enTail = "$w "
+        lastFix = null
+        enUpdate()
         scheduleSuggestion()
     }
 
@@ -518,6 +659,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     /** A new text field started (or the keyboard closed): forget the word, the old field is gone. */
     fun resetSinglish() {
+        enReset()
+        EnSuggest.flush(context)
         singBuf.setLength(0)
         singRaw = false
         lastFix = null
@@ -529,9 +672,16 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
      * The cursor or text changed. When the word we are writing is no longer right before the cursor (the user moved the
      * cursor, or the app cleared the box after Send), forget it so the next letters start a fresh word.
      */
-    fun onSelectionChanged() {
+    fun onSelectionChanged(candStart: Int = -1, candEnd: Int = -1, selS: Int = -1, selE: Int = -1) {
+        if (enWord.isNotEmpty() || enTail.isNotEmpty()) {
+            // check once typing pauses that the text before the cursor is still what we think it is
+            ui.removeCallbacks(enVerify)
+            ui.postDelayed(enVerify, 160L)
+        }
         if (singBuf.isEmpty()) return
         val exp = Singlish.convert(singBuf.toString())
+        // our own composing word is still where it was and the cursor sits at its end: nothing moved, no need to ask the app
+        if (candStart >= 0 && candEnd - candStart == exp.length && selS == candEnd && selE == candEnd) return
         val before = try {
             out.textBefore(exp.length)?.toString()
         } catch (e: Exception) {
@@ -600,8 +750,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         applyHeights()
         quick.visibility = VISIBLE
         quick.alpha = 0f
-        quick.translationY = 24f * d
-        quick.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        quick.translationY = 10f * d
+        quick.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(90).start()
         kv.visibility = GONE
         quick.open(!out.quickAllowed())
         syncSecure()
@@ -658,8 +808,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         emojiMix.open()
         emojiMix.visibility = VISIBLE
         emojiMix.alpha = 0f
-        emojiMix.translationY = 24f * d
-        emojiMix.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        emojiMix.translationY = 10f * d
+        emojiMix.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(90).start()
         kv.visibility = GONE
         refreshSuggestion()
     }
@@ -735,8 +885,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         stickers.layoutParams = lp
         stickers.visibility = VISIBLE
         stickers.alpha = 0f
-        stickers.translationY = 24f * d
-        stickers.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        stickers.translationY = 10f * d
+        stickers.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(90).start()
         kv.visibility = GONE
         stickers.open()
         syncSecure()
@@ -779,8 +929,8 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         status.layoutParams = lp
         status.visibility = VISIBLE
         status.alpha = 0f
-        status.translationY = 24f * d
-        status.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(200).start()
+        status.translationY = 10f * d
+        status.animate().alpha(1f).translationY(0f).setStartDelay(0).setDuration(90).start()
         kv.visibility = GONE
         status.open()
         syncSecure()
@@ -868,6 +1018,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     override fun onText(s: String) {
         if (routed()) {
+            enReset()
             if (quickOpen) quick.insert(s) else panel.insert(s)
             return
         }
@@ -902,6 +1053,7 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         }
         // Quick Text: a typed delimiter right after a shortcut expands it (the IME decides if it is allowed)
         if (s.length == 1 && QuickText.isDelimiter(s[0]) && out.expand(s)) {
+            enReset()
             refreshSuggestion() // the shortcut was just replaced: clear the toolbar suggestion right away
             return
         }
@@ -909,10 +1061,16 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         val st = Prefs.getI(context, "textstyle", 0)
         out.commit(if (st != 0) TextStyles.convert(st, s) else s)
         lastFix = fix
+        enTyped(s, fix)
         scheduleSuggestion()
     }
 
     override fun onAction(a: Int) {
+        if (a == KeyboardView.DEL) {
+            if (!routed()) enDelete()
+        } else if (a != KeyboardView.STATUS) {
+            enReset()
+        }
         if (a == KeyboardView.DEL && !routed()) {
             val f = lastFix
             lastFix = null

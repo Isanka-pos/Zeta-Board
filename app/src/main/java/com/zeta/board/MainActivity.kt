@@ -633,6 +633,7 @@ class MainActivity : Activity() {
         MenuEntry("quicktext", "Quick Text", "Shortcuts that insert messages", R.drawable.ic_quick),
         MenuEntry("translate", "Zeta Translate", "Choose the language", R.drawable.ic_translate),
         MenuEntry("voice", "Voice Typing", "Language and microphone", R.drawable.ic_mic),
+        MenuEntry("voicechanger", "Live Voice Changer", "Real-time voice effects", R.drawable.ic_mic),
         MenuEntry("sticker", "Sticker Maker", "Photo to WhatsApp sticker", R.drawable.ic_sticker),
         MenuEntry("updates", "Updates", "Version and what's new", R.drawable.ic_download),
         MenuEntry("about", "About", "Owner and contact", R.drawable.ic_info)
@@ -642,6 +643,10 @@ class MainActivity : Activity() {
         sideMenu.close()
         if (id == "sticker") {
             startActivity(Intent(this, StickerMakerActivity::class.java))
+            return
+        }
+        if (id == "voicechanger") {
+            startActivity(Intent(this, LiveVoiceActivity::class.java))
             return
         }
         if (id == "themestore") {
@@ -900,6 +905,7 @@ class MainActivity : Activity() {
         put(quickTextCard(), "quicktext")
         put(translateCard(), "translate")
         put(voiceCard(), "voice")
+        put(voiceChangerCard(), "voice")
         put(updatesCard(), "updates")
         put(aboutCard(), "about")
         val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Dev", 12f, Pal.MUTED)
@@ -1026,12 +1032,13 @@ class MainActivity : Activity() {
     private fun smartTypingCard(): View {
         val c = card("Smart typing", "Suggestions, hints and auto-fix")
         c.addView(switchRow("Word suggestions", "While you type Singlish, Sinhala words appear on the top bar. Tap one to use it. Words you finish typing are remembered on this phone only.", "word_suggest", true))
+        c.addView(switchRow("English suggestions", "Complete English words and predict the next word on the top bar (up to 5). Words you use often are remembered on this phone only. Not used in password fields, with Sinhala typing or with fancy text styles.", "en_suggest", true))
         c.addView(switchRow("Key hints", "Show a small Sinhala letter on each key while Sinhala phonetic typing is on (the \u0DC3\u0DD2 key).", "key_hints", true))
         c.addView(switchRow("Auto-fix", "Fixes common English typos when you finish a word (teh \u2192 the, dont \u2192 don't, im \u2192 I'm). Press backspace right after a fix to undo it. Does not change Sinhala typing.", "autofix", true))
         val count = tv("", 12f, Pal.MUTED)
         count.setPadding(0, dp(10), 0, 0)
         fun refresh() {
-            val n = WordSuggest.learnedCount(this)
+            val n = WordSuggest.learnedCount(this) + EnSuggest.learnedCount()
             count.text = if (n == 0) "No learned words yet." else "$n learned words are saved on this phone. They are never sent anywhere."
         }
         refresh()
@@ -1040,6 +1047,7 @@ class MainActivity : Activity() {
         lp.topMargin = dp(10)
         c.addView(pill("Clear learned words") {
             WordSuggest.clearLearned(this)
+            EnSuggest.clearLearned(this)
             refresh()
             Toast.makeText(this, "Learned words cleared", Toast.LENGTH_SHORT).show()
         }, lp)
@@ -1053,6 +1061,26 @@ class MainActivity : Activity() {
         c.addView(switchRow("Key preview", "Pop-up bubble above pressed key", "preview", true))
         c.addView(switchRow("Number row", "Always show 1-0 on top", "numrow", true))
         c.addView(switchRow("Apple emoji style", "iPhone-style emoji in the keyboard emoji panel", "apple_emoji", true))
+        c.addView(switchRow("Delete effect", "Hold backspace and flowers and leaves rain down the screen", "delfx", true))
+        val fxLp = LinearLayout.LayoutParams(MATCH, WRAP)
+        fxLp.topMargin = dp(6)
+        fxLp.bottomMargin = dp(6)
+        c.addView(pill("Show the effect on the whole screen") {
+            if (DeleteFx.canCoverScreen(this)) {
+                Toast.makeText(this, "Already allowed", Toast.LENGTH_SHORT).show()
+            } else {
+                try {
+                    startActivity(
+                        Intent(
+                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            android.net.Uri.parse("package:" + packageName)
+                        )
+                    )
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Could not open the setting", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }, fxLp)
 
         val label = tv("Keyboard height  " + Prefs.getI(this, "height", 100) + "%", 15f, Color.WHITE)
         val lp = LinearLayout.LayoutParams(MATCH, WRAP)
@@ -1080,6 +1108,17 @@ class MainActivity : Activity() {
     }
 
     private var micRefresh: (() -> Unit)? = null
+
+    private fun voiceChangerCard(): View {
+        val c = card("Live Voice Changer", "Change your voice in real time inside Zeta Board. Use headphones.")
+        val open = pill("Open Live Voice Changer") {
+            startActivity(Intent(this, LiveVoiceActivity::class.java))
+        }
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(14)
+        c.addView(open, lp)
+        return c
+    }
 
     private fun voiceCard(): View {
         val c = card("Voice Typing", "Tap the mic on the keyboard toolbar and speak")

@@ -36,6 +36,16 @@ object ClipRepo {
 
     private fun db(): SQLiteDatabase = helper!!.writableDatabase
 
+    /** Opens the database in the background when the keyboard starts, so the first tap on Clipboard does not wait for it. */
+    fun warm() {
+        io.execute {
+            try {
+                db().rawQuery("SELECT 1", null).close()
+            } catch (e: Exception) {
+            }
+        }
+    }
+
     fun observe(f: () -> Unit) {
         observers.add(f)
     }

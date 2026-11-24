@@ -28,6 +28,17 @@ object KeyClick {
         }
     }
 
+    /** Prepares the sound in the background so the first key press does not stutter. */
+    fun warm(c: Context) {
+        val app = c.applicationContext
+        Thread {
+            try {
+                if (pool == null) create(app)
+            } catch (e: Exception) {
+            }
+        }.start()
+    }
+
     fun release() {
         try {
             pool?.release()
