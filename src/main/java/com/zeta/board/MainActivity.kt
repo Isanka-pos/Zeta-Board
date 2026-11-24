@@ -1032,12 +1032,13 @@ class MainActivity : Activity() {
     private fun smartTypingCard(): View {
         val c = card("Smart typing", "Suggestions, hints and auto-fix")
         c.addView(switchRow("Word suggestions", "While you type Singlish, Sinhala words appear on the top bar. Tap one to use it. Words you finish typing are remembered on this phone only.", "word_suggest", true))
+        c.addView(switchRow("English suggestions", "Complete English words and predict the next word on the top bar (up to 5). Words you use often are remembered on this phone only. Not used in password fields, with Sinhala typing or with fancy text styles.", "en_suggest", true))
         c.addView(switchRow("Key hints", "Show a small Sinhala letter on each key while Sinhala phonetic typing is on (the \u0DC3\u0DD2 key).", "key_hints", true))
         c.addView(switchRow("Auto-fix", "Fixes common English typos when you finish a word (teh \u2192 the, dont \u2192 don't, im \u2192 I'm). Press backspace right after a fix to undo it. Does not change Sinhala typing.", "autofix", true))
         val count = tv("", 12f, Pal.MUTED)
         count.setPadding(0, dp(10), 0, 0)
         fun refresh() {
-            val n = WordSuggest.learnedCount(this)
+            val n = WordSuggest.learnedCount(this) + EnSuggest.learnedCount()
             count.text = if (n == 0) "No learned words yet." else "$n learned words are saved on this phone. They are never sent anywhere."
         }
         refresh()
@@ -1046,6 +1047,7 @@ class MainActivity : Activity() {
         lp.topMargin = dp(10)
         c.addView(pill("Clear learned words") {
             WordSuggest.clearLearned(this)
+            EnSuggest.clearLearned(this)
             refresh()
             Toast.makeText(this, "Learned words cleared", Toast.LENGTH_SHORT).show()
         }, lp)
