@@ -429,7 +429,10 @@ object WallpaperStore {
         }.start()
     }
 
-    /** The download / apply window: a bouncing download icon, a progress bar, percent and megabytes. */
+    /**
+     * The download / apply window: a big 3D arrow that turns, bobs into a tray and fills up as the download goes,
+     * a bold percent, a thick raised progress bar and a raised Cancel button.
+     */
     private class ApplyWindow(
         private val act: Activity,
         name: String,
@@ -437,13 +440,13 @@ object WallpaperStore {
         private val onCancel: () -> Unit
     ) {
         private val dialog = Dialog(act)
+        private val root: LinearLayout
         private val title: TextView
-        private val bar: ProgressBar
+        private val bar: Chunky3DBar
         private val pct: TextView
         private val mb: TextView
         private val cancel: TextView
-        private val icon: ImageView
-        private var bounce: ObjectAnimator? = null
+        private val arrow: Download3DView
 
         private fun dp(v: Int): Int = (v * act.resources.displayMetrics.density + 0.5f).toInt()
 
@@ -455,84 +458,96 @@ object WallpaperStore {
             return g
         }
 
-        private fun tv(s: String, size: Float, color: Int, bold: Boolean): TextView {
+        /** Bold text with a solid "extruded" shadow underneath, which gives it a chunky 3D look. */
+        private fun tv(s: String, size: Float, color: Int, shadow: Int = 0): TextView {
             val t = TextView(act)
             t.text = s
             t.textSize = size
             t.setTextColor(color)
-            if (bold) t.setTypeface(t.typeface, android.graphics.Typeface.BOLD)
+            t.typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.BOLD)
+            if (shadow != 0) t.setShadowLayer(1f, 0f, dp(3).toFloat(), shadow)
             return t
         }
 
         init {
             val purple = Color.parseColor("#8B5CF6")
             val cyan = Color.parseColor("#22D3EE")
-            val muted = Color.parseColor("#9A93BD")
+            val muted = Color.parseColor("#B4ACD9")
             dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
             dialog.setCancelable(false)
             dialog.setCanceledOnTouchOutside(false)
 
-            val root = LinearLayout(act)
+            root = LinearLayout(act)
             root.orientation = LinearLayout.VERTICAL
             root.gravity = Gravity.CENTER_HORIZONTAL
-            root.setPadding(dp(24), dp(26), dp(24), dp(20))
-            root.background = round(Color.parseColor("#1A1433"), 1, purple, 26)
+            root.setPadding(dp(22), dp(14), dp(22), dp(24))
+            val bg = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#2A1E5C"), Color.parseColor("#120D2B")))
+            bg.cornerRadius = dp(30).toFloat()
+            bg.setStroke(dp(2), purple)
+            root.background = bg
 
-            icon = ImageView(act)
-            icon.setImageResource(R.drawable.ic_download)
-            icon.setColorFilter(cyan)
-            root.addView(icon, LinearLayout.LayoutParams(dp(54), dp(54)))
+            arrow = Download3DView(act)
+            arrow.setProgress(-1f)
+            root.addView(arrow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(190)))
 
-            title = tv(if (downloading) "Downloading wallpaper" else "Applying wallpaper", 18f, Color.WHITE, true)
+            title = tv(if (downloading) "DOWNLOADING" else "APPLYING", 21f, Color.WHITE, Color.parseColor("#5B21B6"))
             title.gravity = Gravity.CENTER
-            val tlp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            tlp.topMargin = dp(14)
-            root.addView(title, tlp)
+            title.letterSpacing = 0.12f
+            root.addView(title, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-            val nm = tv(name, 13f, muted, false)
+            val nm = TextView(act)
+            nm.text = name
+            nm.textSize = 13f
+            nm.setTextColor(muted)
             nm.gravity = Gravity.CENTER
+            nm.setSingleLine(true)
+            nm.ellipsize = android.text.TextUtils.TruncateAt.END
             nm.setPadding(0, dp(4), 0, 0)
             root.addView(nm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-            bar = ProgressBar(act, null, android.R.attr.progressBarStyleHorizontal)
-            bar.max = 1000
-            bar.isIndeterminate = true
-            bar.progressTintList = ColorStateList.valueOf(cyan)
-            bar.indeterminateTintList = ColorStateList.valueOf(cyan)
-            bar.progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#2B2350"))
-            val blp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8))
-            blp.topMargin = dp(18)
+            pct = tv("", 38f, cyan, Color.parseColor("#0E7490"))
+            pct.gravity = Gravity.CENTER
+            val plp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            plp.topMargin = dp(6)
+            root.addView(pct, plp)
+
+            bar = Chunky3DBar(act)
+            bar.setProgress(-1f)
+            val blp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(30))
+            blp.topMargin = dp(8)
             root.addView(bar, blp)
 
-            val row = LinearLayout(act)
-            row.orientation = LinearLayout.HORIZONTAL
-            mb = tv("", 12f, muted, false)
-            pct = tv("", 12f, purple, true)
-            pct.gravity = Gravity.END
-            row.addView(mb, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(pct, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            val rlp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            rlp.topMargin = dp(8)
-            root.addView(row, rlp)
+            mb = TextView(act)
+            mb.textSize = 12f
+            mb.setTextColor(muted)
+            mb.gravity = Gravity.CENTER
+            val mlp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            mlp.topMargin = dp(10)
+            root.addView(mb, mlp)
 
-            cancel = tv("Cancel", 14f, Color.WHITE, true)
+            // raised button: a dark layer underneath and a lighter top that sinks a little when pressed
+            cancel = tv("CANCEL", 14f, Color.WHITE)
             cancel.gravity = Gravity.CENTER
-            cancel.setPadding(dp(24), dp(10), dp(24), dp(10))
-            cancel.background = round(Color.parseColor("#0F0B1E"), 1, Color.parseColor("#2B2350"), 16)
+            val under = round(Color.parseColor("#0B0818"), 0, 0, 18)
+            val top = round(Color.parseColor("#3B2F7A"), 2, purple, 18)
+            val ld = android.graphics.drawable.LayerDrawable(arrayOf(under, top))
+            ld.setLayerInset(1, 0, 0, 0, dp(5))
+            cancel.background = ld
+            cancel.setPadding(dp(32), dp(11), dp(32), dp(16))
             cancel.visibility = if (downloading) android.view.View.VISIBLE else android.view.View.GONE
             cancel.setOnClickListener {
                 cancel.isEnabled = false
                 cancel.alpha = 0.5f
-                title.text = "Cancelling..."
+                title.text = "CANCELLING"
                 onCancel()
             }
             val clp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            clp.topMargin = dp(18)
+            clp.topMargin = dp(16)
             root.addView(cancel, clp)
 
             dialog.setContentView(root)
             dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            val w = (act.resources.displayMetrics.widthPixels * 0.86f).toInt().coerceAtMost(dp(360))
+            val w = (act.resources.displayMetrics.widthPixels * 0.88f).toInt().coerceAtMost(dp(380))
             dialog.window?.setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
@@ -543,13 +558,21 @@ object WallpaperStore {
             if (!alive()) return
             try {
                 dialog.show()
-                val a = ObjectAnimator.ofFloat(icon, "translationY", 0f, dp(8).toFloat())
-                a.duration = 650
-                a.repeatMode = ValueAnimator.REVERSE
-                a.repeatCount = ValueAnimator.INFINITE
-                a.interpolator = AccelerateDecelerateInterpolator()
-                a.start()
-                bounce = a
+                // pops in: tips up from the top with a little overshoot
+                root.cameraDistance = 14000f * act.resources.displayMetrics.density
+                root.pivotX = root.width / 2f
+                root.rotationX = -70f
+                root.scaleX = 0.6f
+                root.scaleY = 0.6f
+                root.alpha = 0f
+                root.post {
+                    root.pivotX = root.width / 2f
+                    root.pivotY = root.height / 2f
+                    root.animate().rotationX(0f).scaleX(1f).scaleY(1f).alpha(1f)
+                        .setDuration(520)
+                        .setInterpolator(android.view.animation.OvershootInterpolator(1.6f))
+                        .start()
+                }
             } catch (e: Exception) {
             }
         }
@@ -557,9 +580,9 @@ object WallpaperStore {
         fun progress(done: Long, total: Long) {
             if (!dialog.isShowing) return
             if (total > 0L) {
-                bar.isIndeterminate = false
                 val p = (done * 1000L / total).toInt().coerceIn(0, 1000)
-                bar.progress = p
+                arrow.setProgress(p / 1000f)
+                bar.setProgress(p / 1000f)
                 pct.text = (p / 10).toString() + "%"
                 mb.text = String.format("%.1f / %.1f MB", done / 1048576.0, total / 1048576.0)
             } else {
@@ -569,16 +592,17 @@ object WallpaperStore {
 
         fun applying() {
             if (!dialog.isShowing) return
-            title.text = "Applying wallpaper"
-            bar.isIndeterminate = true
-            pct.text = ""
-            mb.text = ""
+            title.text = "APPLYING"
+            arrow.setProgress(1f)
+            arrow.spinning = true
+            bar.setProgress(-1f)
+            pct.text = "100%"
+            mb.text = "Setting your wallpaper..."
             cancel.visibility = android.view.View.GONE
         }
 
         fun close() {
             try {
-                bounce?.cancel()
                 if (dialog.isShowing && alive()) dialog.dismiss()
             } catch (e: Exception) {
             }

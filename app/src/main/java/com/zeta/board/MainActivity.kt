@@ -629,11 +629,11 @@ class MainActivity : Activity() {
         MenuEntry("look", "Appearance", "Themes, shapes, RGB, photo", R.drawable.ic_palette),
         MenuEntry("themestore", "Theme Store", "Get more keyboard themes", R.drawable.ic_palette),
         MenuEntry("typing", "Typing & Fonts", "Text style, key font, feel", R.drawable.ic_font),
+        MenuEntry("stylename", "Style Name Generator", "Fancy names to copy", R.drawable.ic_font),
         MenuEntry("clipboard", "Clipboard", "History and manager", R.drawable.ic_paste),
         MenuEntry("quicktext", "Quick Text", "Shortcuts that insert messages", R.drawable.ic_quick),
         MenuEntry("translate", "Zeta Translate", "Choose the language", R.drawable.ic_translate),
         MenuEntry("voice", "Voice Typing", "Language and microphone", R.drawable.ic_mic),
-        MenuEntry("voicechanger", "Live Voice Changer", "Real-time voice effects", R.drawable.ic_mic),
         MenuEntry("sticker", "Sticker Maker", "Photo to WhatsApp sticker", R.drawable.ic_sticker),
         MenuEntry("updates", "Updates", "Version and what's new", R.drawable.ic_download),
         MenuEntry("about", "About", "Owner and contact", R.drawable.ic_info)
@@ -645,8 +645,8 @@ class MainActivity : Activity() {
             startActivity(Intent(this, StickerMakerActivity::class.java))
             return
         }
-        if (id == "voicechanger") {
-            startActivity(Intent(this, LiveVoiceActivity::class.java))
+        if (id == "stylename") {
+            startActivity(Intent(this, StyleNameActivity::class.java))
             return
         }
         if (id == "themestore") {
@@ -905,7 +905,7 @@ class MainActivity : Activity() {
         put(quickTextCard(), "quicktext")
         put(translateCard(), "translate")
         put(voiceCard(), "voice")
-        put(voiceChangerCard(), "voice")
+        put(styleNameCard(), "typing")
         put(updatesCard(), "updates")
         put(aboutCard(), "about")
         val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Dev", 12f, Pal.MUTED)
@@ -1109,10 +1109,10 @@ class MainActivity : Activity() {
 
     private var micRefresh: (() -> Unit)? = null
 
-    private fun voiceChangerCard(): View {
-        val c = card("Live Voice Changer", "Change your voice in real time inside Zeta Board. Use headphones.")
-        val open = pill("Open Live Voice Changer") {
-            startActivity(Intent(this, LiveVoiceActivity::class.java))
+    private fun styleNameCard(): View {
+        val c = card("Style Name Generator", "Type any name and get dozens of stylish versions to copy. Also available from the menu.")
+        val open = pill("Open Style Name Generator") {
+            startActivity(Intent(this, StyleNameActivity::class.java))
         }
         val lp = LinearLayout.LayoutParams(MATCH, WRAP)
         lp.topMargin = dp(14)

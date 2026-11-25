@@ -22,6 +22,9 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     interface Output {
         fun commit(s: String)
+
+        /** A revealed protected message was typed into the box: do not show it again until it is copied again. */
+        fun revealUsed() {}
         fun del()
         fun enter()
         fun cursor(dir: Int)
@@ -286,6 +289,69 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
 
     override fun onPinsChanged() {
         kv.reloadTools()
+    }
+
+    // ---- protect (hidden messages) ----
+
+    private var revealText: String? = null
+    private val revealHide = Runnable { showReveal(null) }
+
+    /**
+     * Shows a message someone protected (it was just copied) on the toolbar, in place of the icons; tapping it types it into
+     * the box. Gives the icons back after a while if nobody taps it. null hides it.
+     */
+    fun showReveal(msg: String?) {
+        ui.removeCallbacks(revealHide)
+        revealText = msg
+        kv.setReveal(msg)
+        if (msg != null) ui.postDelayed(revealHide, 30000L)
+    }
+
+    private fun protectStatus(msg: String, kind: Int, ms: Long) {
+        ui.removeCallbacks(clearStatus)
+        kv.setStatus(msg, kind, R.drawable.ic_protect)
+        if (ms > 0) ui.postDelayed(clearStatus, ms)
+    }
+
+    /**
+     * Protect button: takes the selected text (or the whole message when nothing is selected) and swaps it for the hidden
+     * form. In the box it looks empty; anyone who copies it and has Zeta Board sees the real message on their toolbar.
+     */
+    private fun protectAction() {
+        try {
+            if (!out.translateAllowed()) {
+                protectStatus("Protect is off in password fields", KeyboardView.STATUS_ERROR, 3000)
+                return
+            }
+            val src = out.translateSource()
+            if (src == null) {
+                protectStatus("Tap a text box first", KeyboardView.STATUS_ERROR, 3000)
+                return
+            }
+            if (src.problem != null) {
+                protectStatus(src.problem, KeyboardView.STATUS_ERROR, 3200)
+                return
+            }
+            if (Protect.has(src.text)) {
+                protectStatus("Already protected", KeyboardView.STATUS_INFO, 2200)
+                return
+            }
+            when (val r = Protect.encode(src.text)) {
+                is Protect.Result.Fail -> protectStatus(r.reason, KeyboardView.STATUS_ERROR, 3200)
+                is Protect.Result.Ok -> {
+                    if (out.applyTranslation(src, r.text)) {
+                        Stats.event(context, "protect", "make")
+                        protectStatus("Protected. The box looks empty, now send it", KeyboardView.STATUS_INFO, 3000)
+                        refreshSuggestion()
+                    } else {
+                        protectStatus("Could not protect, try again", KeyboardView.STATUS_ERROR, 3000)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Crash.log("protect", e)
+            protectStatus("Could not protect, try again", KeyboardView.STATUS_ERROR, 3000)
+        }
     }
 
     // ---- zeta translate ----
@@ -1129,6 +1195,16 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
             KeyboardView.SINHALA -> sinhalaToggle()
             KeyboardView.LAYOUT -> sinhalaCycle()
             KeyboardView.EDITOR -> openEditor()
+            KeyboardView.PROTECT -> protectAction()
+            KeyboardView.REVEAL -> {
+                val t = revealText
+                showReveal(null)
+                if (t != null) {
+                    out.commit(t)
+                    out.revealUsed()
+                    scheduleSuggestion()
+                }
+            }
             KeyboardView.MIX -> openMix()
             KeyboardView.STATUS -> if (voice.active) {
                 kv.setStatus("Finishing\u2026", KeyboardView.STATUS_BUSY, R.drawable.ic_mic)

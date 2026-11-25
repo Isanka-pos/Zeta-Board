@@ -20,9 +20,22 @@ class ZetaIME : InputMethodService() {
     private var secure = false
     private var expanding = false
     private var cm: ClipboardManager? = null
-    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { captureClip(true) }
+    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
+        captureClip(true)
+        checkReveal(true)
+    }
+
+    /** Hash of the protected message that was last shown or typed in, so it does not pop up again on every new text box. */
+    private var revealSeen = 0
+
+    /** True while the keyboard is on the screen for a text box (between start and finish of the input view). */
+    private var inputActive = false
 
     private val output = object : KeyboardHost.Output {
+        override fun revealUsed() {
+            revealSeen = currentClipText()?.hashCode() ?: revealSeen
+        }
+
         override fun commit(s: String) {
             currentInputConnection?.commitText(s, 1)
         }
@@ -491,6 +504,7 @@ class ZetaIME : InputMethodService() {
 
     private fun startInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        inputActive = true
         val h = host ?: return
         val t = info?.inputType ?: 0
         val cls = t and InputType.TYPE_MASK_CLASS
@@ -523,6 +537,7 @@ class ZetaIME : InputMethodService() {
         selStart = info?.initialSelStart ?: 0
         selEnd = info?.initialSelEnd ?: 0
         h.refreshSuggestion(true)
+        if (secure) h.showReveal(null) else checkReveal(false)
         // background chores wait until the keyboard is already on the screen
         bgHandler.post {
             captureClip(false)
@@ -539,6 +554,8 @@ class ZetaIME : InputMethodService() {
     private var lastCfgRefresh = 0L
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        inputActive = false
+        host?.showReveal(null)
         DeleteFx.stop()
         Perf.flushDraw()
         host?.flushSinglish()
@@ -552,6 +569,44 @@ class ZetaIME : InputMethodService() {
         host?.cancelWork()
         video?.pause()
         super.onFinishInputView(finishingInput)
+    }
+
+    private fun currentClipText(): String? = try {
+        val clip = cm?.primaryClip
+        if (clip == null || clip.itemCount == 0 || !clip.description.hasMimeType("text/*")) null
+        else clip.getItemAt(0).coerceToText(this)?.toString()
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * If the copied text is a protected message, shows what it says on the toolbar (tap it to type it in). [fromCopy] is true
+     * when the user just copied it; when the keyboard only opens, a message that was already shown or typed in stays hidden.
+     * Anything else that is copied takes the message off the toolbar again.
+     */
+    private fun checkReveal(fromCopy: Boolean) {
+        val h = host ?: return
+        // a copy made while the keyboard is not showing is picked up when the keyboard opens
+        if (fromCopy && !inputActive) return
+        try {
+            if (secure) {
+                h.showReveal(null)
+                return
+            }
+            val text = currentClipText()
+            val msg = if (Protect.has(text)) Protect.decode(text) else null
+            if (msg == null) {
+                h.showReveal(null)
+                return
+            }
+            val hash = text.hashCode()
+            if (!fromCopy && hash == revealSeen) return
+            revealSeen = hash
+            h.showReveal(msg)
+            Stats.event(this, "protect", "reveal")
+        } catch (e: Exception) {
+            h.showReveal(null)
+        }
     }
 
     /**
@@ -568,6 +623,7 @@ class ZetaIME : InputMethodService() {
             if (!desc.hasMimeType("text/*")) return
             if (desc.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true) return
             val text = clip.getItemAt(0).coerceToText(this)?.toString() ?: return
+            if (Protect.has(text)) return // a protected message looks empty, so it is not worth keeping in the history
             if (ClipGuard.looksSensitive(text)) return
             val h = text.hashCode()
             if (!fromCopy && Prefs.getI(this, "clip_hash", 0) == h) return

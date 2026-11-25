@@ -37,7 +37,9 @@ object Tools {
     const val LAYOUT = 13
     /** Text Editor: arrow pad, select, cut / copy / paste, home / end, backspace. */
     const val EDITOR = 14
-    const val COUNT = 15
+    /** Protect: hides the message in the box so it looks blank to everyone without Zeta Board. */
+    const val PROTECT = 15
+    const val COUNT = 16
 
     /** How many tools fit on the top bar (the tool list button always sits after them). */
     const val MAX_PINS = 5
@@ -46,9 +48,9 @@ object Tools {
 
     private val icons = intArrayOf(
         R.drawable.ic_sticker, R.drawable.ic_paste, R.drawable.ic_quick, R.drawable.ic_translate,
-        R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_emoji, R.drawable.ic_tune, R.drawable.ic_mic, R.drawable.ic_status, R.drawable.ic_singlish, R.drawable.ic_mix, R.drawable.ic_speed, R.drawable.ic_layout, R.drawable.ic_editor
+        R.drawable.ic_palette, R.drawable.ic_font, R.drawable.ic_emoji, R.drawable.ic_tune, R.drawable.ic_mic, R.drawable.ic_status, R.drawable.ic_singlish, R.drawable.ic_mix, R.drawable.ic_speed, R.drawable.ic_layout, R.drawable.ic_editor, R.drawable.ic_protect
     )
-    private val names = arrayOf("Stickers", "Clipboard", "Quick Text", "Translate", "Theme", "Text style", "Emoji", "Settings", "Voice", "Status Saver", "Singlish", "Emoji Mix", "Typing speed", "Layout", "Text Editor")
+    private val names = arrayOf("Stickers", "Clipboard", "Quick Text", "Translate", "Theme", "Text style", "Emoji", "Settings", "Voice", "Status Saver", "Singlish", "Emoji Mix", "Typing speed", "Layout", "Text Editor", "Protect")
 
     fun icon(id: Int): Int = icons[id]
 

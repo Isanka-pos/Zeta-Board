@@ -63,6 +63,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
         const val LAYOUT = 18
         /** The Text Editor tool was used. */
         const val EDITOR = 19
+        /** The Protect tool was used: hide the message in the box. */
+        const val PROTECT = 20
+        /** The revealed protected message on the toolbar was tapped: type it into the box. */
+        const val REVEAL = 21
         const val STATUS_BUSY = 0
         const val STATUS_INFO = 1
         const val STATUS_ERROR = 2
@@ -216,6 +220,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private var statusMsg: String? = null
     private var statusKind = STATUS_INFO
     private var statusIcon = R.drawable.ic_translate
+    // a protected message that was copied: its text is shown on the strip, ahead of the suggestion
+    private var revealMsg: String? = null
+    private var revealFlat = ""
     private val sugRect = RectF()
 
     // Sinhala word suggestions (Singlish typing): shown on the toolbar strip when nothing else needs it
@@ -466,6 +473,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             Tools.SINGLISH -> listener?.onAction(SINGLISH)
             Tools.LAYOUT -> listener?.onAction(LAYOUT)
             Tools.EDITOR -> listener?.onAction(EDITOR)
+            Tools.PROTECT -> listener?.onAction(PROTECT)
             Tools.MIX -> listener?.onAction(MIX)
             Tools.SPEED -> openSpeed()
         }
@@ -483,9 +491,20 @@ class KeyboardView(ctx: Context) : View(ctx) {
         invalidate()
     }
 
-    private fun wordsShown(): Boolean = statusMsg == null && suggestion == null && words.isNotEmpty()
+    /** Shows a revealed protected message on the toolbar in place of the icons, or brings the icons back when [msg] is null. */
+    fun setReveal(msg: String?) {
+        if (msg == revealMsg) return
+        revealMsg = msg
+        revealFlat = msg?.replace(WS, " ")?.trim() ?: ""
+        if (msg != null && pressedTool in toolRects.indices) pressedTool = -1
+        if (!stripOn() && pressedTool == TOOL_SUG) pressedTool = -1
+        if (msg != null) menuOpen = false
+        invalidate()
+    }
 
-    private fun stripOn(): Boolean = statusMsg != null || suggestion != null || words.isNotEmpty()
+    private fun wordsShown(): Boolean = statusMsg == null && revealMsg == null && suggestion == null && words.isNotEmpty()
+
+    private fun stripOn(): Boolean = statusMsg != null || revealMsg != null || suggestion != null || words.isNotEmpty()
 
     /** Shows up to five word suggestions on the toolbar (empty list hides them). */
     fun setWords(full: List<String>) {
@@ -957,6 +976,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val st = statusMsg
         if (st != null) {
             drawStrip(c, st, if (statusKind == STATUS_ERROR) 0xFFE5484D.toInt() else theme.accent, statusIcon)
+            return
+        }
+        if (revealMsg != null) {
+            drawStrip(c, revealFlat, theme.accent, R.drawable.ic_protect)
             return
         }
         if (suggestion != null) {
@@ -1659,7 +1682,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
             return
         }
         if (i == TOOL_SUG) {
-            if (statusMsg != null) listener?.onAction(STATUS) else if (suggestion != null) listener?.onAction(SUGGEST)
+            if (statusMsg != null) listener?.onAction(STATUS) else if (revealMsg != null) listener?.onAction(REVEAL) else if (suggestion != null) listener?.onAction(SUGGEST)
             invalidate()
             return
         }

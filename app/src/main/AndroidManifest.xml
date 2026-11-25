@@ -71,9 +71,10 @@
         </activity>
 
         <activity
-            android:name=".LiveVoiceActivity"
+            android:name=".StyleNameActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden"
-            android:exported="false" />
+            android:exported="false"
+            android:windowSoftInputMode="stateHidden|adjustResize" />
 
         <activity
             android:name=".MicPermissionActivity"
