@@ -1,6 +1,23 @@
 package com.zeta.board
 
+import android.app.Activity
+import android.app.Dialog
 import android.content.Context
+import android.content.res.ColorStateList
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.os.Build
+import android.view.Gravity
+import android.view.ViewGroup
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+import java.util.concurrent.atomic.AtomicBoolean
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -155,6 +172,12 @@ object WallpaperStore {
                 }
             }
             main.post { onResult(items, cached, err) }
+            if (err == null) {
+                try {
+                    prefetchThumbs(app, items)
+                } catch (e: Exception) {
+                }
+            }
         }.start()
     }
 
@@ -190,7 +213,60 @@ object WallpaperStore {
 
     private fun cacheFile(app: Context): File = File(app.filesDir, "wallpapers_cache.json")
 
-    private fun thumbDir(app: Context): File = File(app.cacheDir, "wp_thumbs")
+    /** Thumbnails are kept in the app's own files (not the cache folder the system can empty), so they show without internet. */
+    private fun thumbDir(app: Context): File = File(app.filesDir, "wp_thumbs")
+
+    private fun oldThumbDir(app: Context): File = File(app.cacheDir, "wp_thumbs")
+
+    private fun thumbFile(app: Context, id: String): File {
+        val dir = thumbDir(app)
+        if (!dir.exists()) dir.mkdirs()
+        val f = File(dir, "$id.img")
+        if (!f.exists() || f.length() == 0L) {
+            // thumbnail saved by an older version: move it over instead of downloading again
+            try {
+                val old = File(oldThumbDir(app), "$id.img")
+                if (old.exists() && old.length() > 0L) old.copyTo(f, overwrite = true)
+            } catch (e: Exception) {
+            }
+        }
+        return f
+    }
+
+    /** Saves the picture of one wallpaper on the phone (does nothing when it is already there). */
+    private fun ensureThumbFile(app: Context, w: Wallpaper): File? {
+        if (isAsset(w.thumb)) return null
+        val f = thumbFile(app, w.id)
+        if (f.exists() && f.length() > 0L) return f
+        val tmp = File(f.parentFile, w.id + "." + System.nanoTime() + ".tmp")
+        try {
+            download(w.thumb, tmp, 2L * 1024L * 1024L)
+            if (!tmp.renameTo(f)) {
+                tmp.delete()
+                return null
+            }
+        } catch (e: Exception) {
+            tmp.delete()
+            return null
+        }
+        return f
+    }
+
+    /** After the list loads, saves every wallpaper picture on the phone, so the store looks complete even offline. */
+    private fun prefetchThumbs(app: Context, items: List<Wallpaper>) {
+        var misses = 0
+        for (w in items) {
+            if (isAsset(w.thumb)) continue
+            val f = thumbFile(app, w.id)
+            if (f.exists() && f.length() > 0L) continue
+            if (ensureThumbFile(app, w) == null) {
+                misses++
+                if (misses >= 3) return
+            } else {
+                misses = 0
+            }
+        }
+    }
 
     private fun writeCache(app: Context, text: String) {
         val tmp = File(app.filesDir, "wallpapers_cache.tmp")
@@ -202,6 +278,13 @@ object WallpaperStore {
     private fun prune(app: Context, items: List<Wallpaper>) {
         val keep = HashSet<String>()
         for (w in items) keep.add(w.id)
+        // saved live wallpapers of wallpapers that are gone from the store are removed too
+        try {
+            for (f in videoDir(app).listFiles() ?: emptyArray()) {
+                if (!keep.contains(f.name.substringBefore('.'))) f.delete()
+            }
+        } catch (e: Exception) {
+        }
         val files = thumbDir(app).listFiles() ?: return
         for (f in files) {
             if (!keep.contains(f.name.substringBefore('.'))) f.delete()
@@ -231,19 +314,7 @@ object WallpaperStore {
                     main.post { onDone(ready) }
                     return@execute
                 }
-                val dir = thumbDir(app)
-                if (!dir.exists()) dir.mkdirs()
-                val f = File(dir, w.id + ".img")
-                if (!f.exists() || f.length() == 0L) {
-                    val tmp = File(dir, w.id + "." + System.nanoTime() + ".tmp")
-                    try {
-                        download(w.thumb, tmp, 2L * 1024L * 1024L)
-                        if (!tmp.renameTo(f)) tmp.delete()
-                    } catch (e: Exception) {
-                        tmp.delete()
-                        throw e
-                    }
-                }
+                val f = ensureThumbFile(app, w) ?: throw IllegalStateException("no picture")
                 bmp = decodeThumb(f)
                 if (bmp == null) f.delete()
             } catch (e: Exception) {
@@ -270,18 +341,73 @@ object WallpaperStore {
 
     // ---------------------------------------------------------------- apply
 
-    /** Downloads the wallpaper and sets it as the keyboard background. onDone(null) = done, otherwise a short error. */
+    private fun videoDir(app: Context): File = File(app.filesDir, "wp_videos")
+
+    private fun videoFile(app: Context, w: Wallpaper): File = File(videoDir(app), w.id + ".mp4")
+
+    /** True when the live wallpaper is already saved on this phone (it then applies at once, without internet). */
+    fun isDownloaded(c: Context, w: Wallpaper): Boolean {
+        if (!w.video) return true
+        val f = videoFile(c.applicationContext, w)
+        return f.exists() && f.length() > 0L
+    }
+
+    private class Cancelled : Exception("Download cancelled")
+
+    /**
+     * Makes the wallpaper the keyboard background. A live wallpaper is downloaded only the first time
+     * (with a progress window when [c] is an Activity) and kept on the phone, so the next Apply is instant.
+     * onDone(null) = done, otherwise a short error.
+     */
     fun applyToKeyboard(c: Context, w: Wallpaper, onDone: (String?) -> Unit) {
         val app = c.applicationContext
+        val cancelled = AtomicBoolean(false)
+        val needsDownload = w.video && !isDownloaded(app, w)
+        var win: ApplyWindow? = null
+        if (w.video && c is Activity) {
+            win = ApplyWindow(c, w.name, needsDownload) { cancelled.set(true) }
+            win.show()
+        }
+        val shown = win
         Thread {
             var err: String? = null
             val tmp = File(app.cacheDir, "wp_" + w.id + ".tmp")
             try {
                 if (w.video) {
-                    // live wallpaper: download the video, then let KbVideo check it and make it the keyboard background
-                    download(w.full, tmp, KbVideo.MAX_BYTES)
-                    val msg = KbVideo.save(app, Uri.fromFile(tmp))
-                    if (msg != null) throw IllegalStateException(msg)
+                    val dir = videoDir(app)
+                    if (!dir.exists()) dir.mkdirs()
+                    val saved = videoFile(app, w)
+                    var attempt = 0
+                    while (true) {
+                        if (!saved.exists() || saved.length() == 0L) {
+                            val part = File(dir, w.id + ".part")
+                            try {
+                                var last = 0L
+                                download(w.full, part, KbVideo.MAX_BYTES, cancelled) { done, total ->
+                                    val now = System.currentTimeMillis()
+                                    if (shown != null && (now - last > 80L || done == total)) {
+                                        last = now
+                                        main.post { shown.progress(done, total) }
+                                    }
+                                }
+                                // the finished file only gets its real name when it is complete
+                                if (!part.renameTo(saved)) {
+                                    part.copyTo(saved, overwrite = true)
+                                    part.delete()
+                                }
+                            } catch (e: Exception) {
+                                part.delete()
+                                throw e
+                            }
+                        }
+                        if (shown != null) main.post { shown.applying() }
+                        val msg = KbVideo.save(app, Uri.fromFile(saved))
+                        if (msg == null) break
+                        // a damaged saved copy: remove it and download once more
+                        saved.delete()
+                        if (attempt >= 1) throw IllegalStateException(msg)
+                        attempt++
+                    }
                     Prefs.setS(app, KEY_ID, w.id)
                     Prefs.setL(app, KEY_STAMP, KbVideo.stamp(app))
                 } else {
@@ -296,8 +422,167 @@ object WallpaperStore {
                 tmp.delete()
             }
             if (err == null) Stats.event(app, "wallpaper_apply", w.id)
-            main.post { onDone(err) }
+            main.post {
+                shown?.close()
+                onDone(err)
+            }
         }.start()
+    }
+
+    /** The download / apply window: a bouncing download icon, a progress bar, percent and megabytes. */
+    private class ApplyWindow(
+        private val act: Activity,
+        name: String,
+        downloading: Boolean,
+        private val onCancel: () -> Unit
+    ) {
+        private val dialog = Dialog(act)
+        private val title: TextView
+        private val bar: ProgressBar
+        private val pct: TextView
+        private val mb: TextView
+        private val cancel: TextView
+        private val icon: ImageView
+        private var bounce: ObjectAnimator? = null
+
+        private fun dp(v: Int): Int = (v * act.resources.displayMetrics.density + 0.5f).toInt()
+
+        private fun round(color: Int, stroke: Int, strokeColor: Int, r: Int): GradientDrawable {
+            val g = GradientDrawable()
+            g.setColor(color)
+            g.cornerRadius = dp(r).toFloat()
+            if (stroke > 0) g.setStroke(dp(stroke), strokeColor)
+            return g
+        }
+
+        private fun tv(s: String, size: Float, color: Int, bold: Boolean): TextView {
+            val t = TextView(act)
+            t.text = s
+            t.textSize = size
+            t.setTextColor(color)
+            if (bold) t.setTypeface(t.typeface, android.graphics.Typeface.BOLD)
+            return t
+        }
+
+        init {
+            val purple = Color.parseColor("#8B5CF6")
+            val cyan = Color.parseColor("#22D3EE")
+            val muted = Color.parseColor("#9A93BD")
+            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+            dialog.setCancelable(false)
+            dialog.setCanceledOnTouchOutside(false)
+
+            val root = LinearLayout(act)
+            root.orientation = LinearLayout.VERTICAL
+            root.gravity = Gravity.CENTER_HORIZONTAL
+            root.setPadding(dp(24), dp(26), dp(24), dp(20))
+            root.background = round(Color.parseColor("#1A1433"), 1, purple, 26)
+
+            icon = ImageView(act)
+            icon.setImageResource(R.drawable.ic_download)
+            icon.setColorFilter(cyan)
+            root.addView(icon, LinearLayout.LayoutParams(dp(54), dp(54)))
+
+            title = tv(if (downloading) "Downloading wallpaper" else "Applying wallpaper", 18f, Color.WHITE, true)
+            title.gravity = Gravity.CENTER
+            val tlp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            tlp.topMargin = dp(14)
+            root.addView(title, tlp)
+
+            val nm = tv(name, 13f, muted, false)
+            nm.gravity = Gravity.CENTER
+            nm.setPadding(0, dp(4), 0, 0)
+            root.addView(nm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+            bar = ProgressBar(act, null, android.R.attr.progressBarStyleHorizontal)
+            bar.max = 1000
+            bar.isIndeterminate = true
+            bar.progressTintList = ColorStateList.valueOf(cyan)
+            bar.indeterminateTintList = ColorStateList.valueOf(cyan)
+            bar.progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#2B2350"))
+            val blp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8))
+            blp.topMargin = dp(18)
+            root.addView(bar, blp)
+
+            val row = LinearLayout(act)
+            row.orientation = LinearLayout.HORIZONTAL
+            mb = tv("", 12f, muted, false)
+            pct = tv("", 12f, purple, true)
+            pct.gravity = Gravity.END
+            row.addView(mb, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(pct, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            val rlp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            rlp.topMargin = dp(8)
+            root.addView(row, rlp)
+
+            cancel = tv("Cancel", 14f, Color.WHITE, true)
+            cancel.gravity = Gravity.CENTER
+            cancel.setPadding(dp(24), dp(10), dp(24), dp(10))
+            cancel.background = round(Color.parseColor("#0F0B1E"), 1, Color.parseColor("#2B2350"), 16)
+            cancel.visibility = if (downloading) android.view.View.VISIBLE else android.view.View.GONE
+            cancel.setOnClickListener {
+                cancel.isEnabled = false
+                cancel.alpha = 0.5f
+                title.text = "Cancelling..."
+                onCancel()
+            }
+            val clp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            clp.topMargin = dp(18)
+            root.addView(cancel, clp)
+
+            dialog.setContentView(root)
+            dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            val w = (act.resources.displayMetrics.widthPixels * 0.86f).toInt().coerceAtMost(dp(360))
+            dialog.window?.setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        private fun alive(): Boolean =
+            !act.isFinishing && !(Build.VERSION.SDK_INT >= 17 && act.isDestroyed)
+
+        fun show() {
+            if (!alive()) return
+            try {
+                dialog.show()
+                val a = ObjectAnimator.ofFloat(icon, "translationY", 0f, dp(8).toFloat())
+                a.duration = 650
+                a.repeatMode = ValueAnimator.REVERSE
+                a.repeatCount = ValueAnimator.INFINITE
+                a.interpolator = AccelerateDecelerateInterpolator()
+                a.start()
+                bounce = a
+            } catch (e: Exception) {
+            }
+        }
+
+        fun progress(done: Long, total: Long) {
+            if (!dialog.isShowing) return
+            if (total > 0L) {
+                bar.isIndeterminate = false
+                val p = (done * 1000L / total).toInt().coerceIn(0, 1000)
+                bar.progress = p
+                pct.text = (p / 10).toString() + "%"
+                mb.text = String.format("%.1f / %.1f MB", done / 1048576.0, total / 1048576.0)
+            } else {
+                mb.text = String.format("%.1f MB", done / 1048576.0)
+            }
+        }
+
+        fun applying() {
+            if (!dialog.isShowing) return
+            title.text = "Applying wallpaper"
+            bar.isIndeterminate = true
+            pct.text = ""
+            mb.text = ""
+            cancel.visibility = android.view.View.GONE
+        }
+
+        fun close() {
+            try {
+                bounce?.cancel()
+                if (dialog.isShowing && alive()) dialog.dismiss()
+            } catch (e: Exception) {
+            }
+        }
     }
 
     // ---------------------------------------------------------------- network
@@ -327,26 +612,38 @@ object WallpaperStore {
     }
 
     /** Saves the file at [url] into [out], refusing anything bigger than [maxBytes]. */
-    private fun download(url: String, out: File, maxBytes: Long) {
+    private fun download(
+        url: String,
+        out: File,
+        maxBytes: Long,
+        cancelled: AtomicBoolean? = null,
+        onProgress: ((Long, Long) -> Unit)? = null
+    ) {
         val conn = open(url)
         try {
             val code = conn.responseCode
             if (code != 200) throw IllegalStateException("Server answered $code")
-            if (conn.contentLengthLong > maxBytes) throw IllegalStateException("The file is too big")
+            val len = conn.contentLengthLong
+            if (len > maxBytes) throw IllegalStateException("The file is too big")
+            val plain = conn.contentEncoding.isNullOrEmpty()
             var total = 0L
             conn.inputStream.use { input ->
                 FileOutputStream(out).use { os ->
                     val buf = ByteArray(16 * 1024)
                     while (true) {
+                        if (cancelled != null && cancelled.get()) throw Cancelled()
                         val n = input.read(buf)
                         if (n < 0) break
                         total += n
                         if (total > maxBytes) throw IllegalStateException("The file is too big")
                         os.write(buf, 0, n)
+                        onProgress?.invoke(total, len)
                     }
                 }
             }
             if (total == 0L) throw IllegalStateException("The file is empty")
+            // a cut-off download must never be kept as if it were complete
+            if (len > 0L && plain && total != len) throw IllegalStateException("The download was cut off, try again")
         } catch (e: Exception) {
             out.delete()
             throw e
@@ -356,6 +653,7 @@ object WallpaperStore {
     }
 
     private fun friendly(e: Exception): String = when (e) {
+        is Cancelled -> "Download cancelled"
         is UnknownHostException, is ConnectException, is SocketTimeoutException -> "No connection to the wallpaper server"
         else -> e.message ?: "Something went wrong"
     }

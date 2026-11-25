@@ -663,12 +663,13 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private fun layoutKeys() {
         val w = width.toFloat()
         if (w <= 0f || rows.isEmpty()) return
-        val padX = dp(4f)
-        val vgap = dp(5f)
+        // letter keys get a wider gap, so one finger lands on one letter; the emoji grid keeps its tighter gap
+        val padX = if (layer == 4) dp(4f) else dp(3f)
+        val vgap = keyGap()
         val top = toolH
         val rh = (height - top - dp(6f)) / rows.size
         rows.forEachIndexed { i, row ->
-            val gap = if (layer == 4 && i == rows.size - 1) dp(1.5f) else dp(5f)
+            val gap = if (layer == 4 && i == rows.size - 1) dp(1.5f) else keyGap()
             var sum = 0f
             for (k in row) sum += k.w
             val avail = w - 2 * padX - gap * (row.size - 1)
@@ -681,8 +682,12 @@ class KeyboardView(ctx: Context) : View(ctx) {
         }
     }
 
+    /** Space between two keys (sideways and up/down). */
+    private fun keyGap(): Float = if (layer == 4) dp(5f) else dp(7.5f)
+
     fun preferredHeight(): Int {
-        val base = dp(46f) * heightPct / 100f
+        // the keys got a wider gap, so each row is a little taller and the keys themselves keep their size
+        val base = dp(48.5f) * heightPct / 100f
         val n = if (numRow) 5 else 4
         return (toolH + base * n + dp(8f)).toInt()
     }
@@ -1461,7 +1466,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     private fun findKey(x: Float, y: Float): Key? {
         // inside a key: that key. In the gap between keys: the closest key, so a touch never goes to the wrong neighbour.
         for (row in rows) for (k in row) if (k.r.contains(x, y)) return k
-        val g = dp(5f)
+        val g = keyGap()
         var best: Key? = null
         var bd = Float.MAX_VALUE
         for (row in rows) for (k in row) {
