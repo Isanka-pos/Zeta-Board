@@ -374,7 +374,6 @@ class ZetaIME : InputMethodService() {
         ClipRepo.warm()
         KeyClick.warm(this)
         DeleteFx.warm()
-        WordSuggest.preload(this)
         EnSuggest.preload(this)
         QuickRepo.init(this)
         val m = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
@@ -424,7 +423,6 @@ class ZetaIME : InputMethodService() {
     }
 
     private fun buildInputView(): View {
-        WordSuggest.preload(this)
         EnSuggest.preload(this)
         val h = KeyboardHost(this, output)
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))
