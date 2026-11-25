@@ -5,6 +5,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.Outline
+import android.graphics.SurfaceTexture
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
@@ -14,16 +17,22 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.media.MediaPlayer
 import android.os.Bundle
 import android.view.Gravity
+import android.view.Surface
+import android.view.TextureView
+import android.view.ViewOutlineProvider
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
 
 /**
  * Theme Store: browse every theme with a live preview, take (install) the ones you like and apply them.
@@ -33,7 +42,7 @@ import android.widget.Toast
  */
 class ThemeStoreActivity : Activity() {
 
-    private lateinit var preview: ThemePreview
+    private lateinit var preview: PreviewStack
     private lateinit var nameTv: TextView
     private lateinit var subTv: TextView
     private lateinit var statsTv: TextView
@@ -57,6 +66,16 @@ class ThemeStoreActivity : Activity() {
     private var wpFetchedAt = 0L
     private var wpBusy = false
     private var alive = true
+    /** True once the user tapped a wallpaper in this visit; until then the preview shows what is on the keyboard now. */
+    private var wpPicked = false
+
+    // the keyboard background that is applied now (photo or video poster), loaded once off the main thread
+    private var curBgStamp = -2L
+    private var curBgBmp: Bitmap? = null
+    private var curBgLoading = false
+    private var curVidStamp = -2L
+    private var curVidBmp: Bitmap? = null
+    private var curVidLoading = false
 
     private val dens: Float by lazy { resources.displayMetrics.density }
     private fun dp(v: Int): Int = (v * dens).toInt()
@@ -73,7 +92,7 @@ class ThemeStoreActivity : Activity() {
         root.setPadding(dp(14), dp(10), dp(14), 0)
         root.addView(topBar(), LinearLayout.LayoutParams(MATCH, WRAP))
 
-        preview = ThemePreview(this)
+        preview = PreviewStack(this)
         val plp = LinearLayout.LayoutParams(MATCH, dp(176))
         plp.topMargin = dp(6)
         root.addView(preview, plp)
@@ -89,9 +108,18 @@ class ThemeStoreActivity : Activity() {
         root.addView(gridScroll, LinearLayout.LayoutParams(MATCH, 0, 1f))
         setContentView(root)
 
-        preview.set(Themes.get(sel))
         buildGrid()
         refreshAll()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        preview.resume()
+    }
+
+    override fun onPause() {
+        preview.pause()
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -228,7 +256,6 @@ class ThemeStoreActivity : Activity() {
 
     private fun pick(i: Int) {
         sel = i
-        preview.set(Themes.get(i))
         refreshAll()
     }
 
@@ -289,8 +316,7 @@ class ThemeStoreActivity : Activity() {
             refreshWallpaperUi()
             return
         }
-        preview.setBg(null)
-        preview.set(Themes.get(sel))
+        updatePreview()
         remove.text = "Remove"
         val cur = Prefs.getI(this, "theme", 0)
         for (t in tiles) {
@@ -392,6 +418,7 @@ class ThemeStoreActivity : Activity() {
                         val tile = WallpaperTile(this, w)
                         tile.setOnClickListener {
                             wpSelId = w.id
+                            wpPicked = true
                             refreshAll()
                         }
                         wpTiles.add(tile)
@@ -416,27 +443,36 @@ class ThemeStoreActivity : Activity() {
         grid.addView(View(this), LinearLayout.LayoutParams(MATCH, dp(8)))
     }
 
+    /** True when the keyboard background is the user's own photo / video (not one of the store wallpapers) and nothing was tapped yet. */
+    private fun showingOwnBackground(): Boolean =
+        filter == wpTab && !wpPicked && (KbBg.has(this) || KbVideo.has(this)) && wallpapers.none { WallpaperStore.isActive(this, it) }
+
     private fun refreshWallpaperUi() {
         paintTabs()
         for (t in wpTiles) {
             t.applied = WallpaperStore.isActive(this, t.wp)
-            t.chosen = t.wp.id == wpSelId
+            t.chosen = !showingOwnBackground() && t.wp.id == wpSelId
             t.invalidate()
         }
-        preview.set(Themes.get(Prefs.getI(this, "theme", 0)))
+        updatePreview()
         remove.text = "Reset"
-        remove.visibility = if (KbBg.has(this) && !wpBusy) View.VISIBLE else View.GONE
+        remove.visibility = if ((KbBg.has(this) || KbVideo.has(this)) && !wpBusy) View.VISIBLE else View.GONE
         statsTv.text = wallpapers.size.toString() + " wallpapers"
+        if (showingOwnBackground()) {
+            nameTv.text = "Current background"
+            subTv.text = (if (KbVideo.has(this)) "Your video" else "Your photo") + "  \u2022  In use"
+            primary.text = "Applied"
+            primary.alpha = 0.5f
+            return
+        }
         val w = selectedWallpaper()
         if (w == null) {
-            preview.setBg(null)
             nameTv.text = "Wallpapers"
             subTv.text = if (!WallpaperStore.configured()) "Not set up" else if (wpLoading) "Loading\u2026" else "Nothing to show yet"
             primary.text = "Apply"
             primary.alpha = 0.5f
             return
         }
-        preview.setBg(WallpaperStore.peekThumb(w.id))
         val active = WallpaperStore.isActive(this, w)
         nameTv.text = w.name
         subTv.text = w.category + "  \u2022  " + (if (active) "In use" else "Not applied")
@@ -444,7 +480,108 @@ class ThemeStoreActivity : Activity() {
         primary.alpha = if (active || wpBusy) 0.5f else 1f
     }
 
+    // ---------- the big keyboard preview ----------
+
+    /** A live wallpaper that was already downloaded (saved by Apply), so it can play here without internet. */
+    private fun savedVideo(w: Wallpaper): File? {
+        val f = File(File(filesDir, "wp_videos"), w.id + ".mp4")
+        return if (f.exists() && f.length() > 0L) f else null
+    }
+
+    /** The applied keyboard photo. Loaded in the background the first time, then kept until the photo changes. */
+    private fun currentBgBitmap(): Bitmap? {
+        if (!KbBg.has(this)) {
+            curBgBmp = null
+            curBgStamp = -1L
+            return null
+        }
+        val st = KbBg.stamp(this)
+        if (st == curBgStamp) return curBgBmp
+        if (!curBgLoading) {
+            curBgLoading = true
+            val app = applicationContext
+            Thread {
+                val b: Bitmap? = try {
+                    KbBg.load(app, 2)
+                } catch (e: Throwable) {
+                    null
+                }
+                runOnUiThread {
+                    curBgLoading = false
+                    if (alive) {
+                        curBgBmp = b
+                        curBgStamp = st
+                        refreshAll()
+                    }
+                }
+            }.start()
+        }
+        return curBgBmp
+    }
+
+    /** A still picture of the applied keyboard video, shown until the video starts playing. */
+    private fun currentVideoPoster(): Bitmap? {
+        val fromStore = wallpapers.firstOrNull { it.video && WallpaperStore.isActive(this, it) }
+        val t = if (fromStore != null) WallpaperStore.peekThumb(fromStore.id) else null
+        if (t != null) return t
+        if (!KbVideo.has(this)) {
+            curVidBmp = null
+            curVidStamp = -1L
+            return null
+        }
+        val st = KbVideo.stamp(this)
+        if (st == curVidStamp) return curVidBmp
+        if (!curVidLoading) {
+            curVidLoading = true
+            val app = applicationContext
+            Thread {
+                val b: Bitmap? = try {
+                    KbVideo.thumb(app)
+                } catch (e: Throwable) {
+                    null
+                }
+                runOnUiThread {
+                    curVidLoading = false
+                    if (alive) {
+                        curVidBmp = b
+                        curVidStamp = st
+                        refreshAll()
+                    }
+                }
+            }.start()
+        }
+        return curVidBmp
+    }
+
+    /**
+     * Fills the preview keyboard with what the keyboard really shows:
+     *  - the wallpaper you tapped (live ones play when they are already downloaded), or
+     *  - otherwise the photo / live video that is applied now, behind the applied (or tapped) theme.
+     */
+    private fun updatePreview() {
+        preview.set(Themes.get(if (filter == wpTab) Prefs.getI(this, "theme", 0) else sel))
+        var bmp: Bitmap? = null
+        var vid: File? = null
+        val w = if (filter == wpTab && !showingOwnBackground()) selectedWallpaper() else null
+        if (w != null) {
+            val active = WallpaperStore.isActive(this, w)
+            bmp = WallpaperStore.peekThumb(w.id)
+            if (w.video) {
+                vid = if (active && KbVideo.has(this)) KbVideo.file(this) else savedVideo(w)
+            } else if (bmp == null && active) {
+                bmp = currentBgBitmap()
+            }
+        } else if (KbVideo.has(this)) {
+            vid = KbVideo.file(this)
+            bmp = currentVideoPoster()
+        } else if (KbBg.has(this)) {
+            bmp = currentBgBitmap()
+        }
+        preview.show(bmp, vid)
+    }
+
     private fun onApplyWallpaper() {
+        if (showingOwnBackground()) return
         val w = selectedWallpaper() ?: return
         if (wpBusy || WallpaperStore.isActive(this, w)) return
         wpBusy = true
@@ -509,7 +646,7 @@ class ThemeStoreActivity : Activity() {
 }
 
 /** Big mini-keyboard showing the highlighted theme. */
-private class ThemePreview(ctx: Context) : View(ctx) {
+private class ThemePreview(ctx: Context, private val keysLayer: Boolean) : View(ctx) {
     private val d = ctx.resources.displayMetrics.density
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val tp = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -533,11 +670,21 @@ private class ThemePreview(ctx: Context) : View(ctx) {
         invalidate()
     }
 
+    private var hasMedia = false
+
+    /** True when a photo or video is behind the keys: the keys layer then dims it like the real keyboard. */
+    fun setMedia(on: Boolean) {
+        val d2 = Prefs.getI(context, "bgdim", 35)
+        if (hasMedia == on && dim == d2) return
+        hasMedia = on
+        dim = d2
+        invalidate()
+    }
+
     /** A wallpaper drawn behind the keys (null = none), dimmed the same way the real keyboard dims it. */
     fun setBg(b: Bitmap?) {
         if (bg === b) return
         bg = b
-        dim = Prefs.getI(context, "bgdim", 35)
         invalidate()
     }
 
@@ -582,18 +729,26 @@ private class ThemePreview(ctx: Context) : View(ctx) {
         c.save()
         c.clipPath(clip)
 
-        p.style = Paint.Style.FILL
-        p.shader = LinearGradient(0f, 0f, 0f, h, th.bgTop, th.bgBottom, Shader.TileMode.CLAMP)
-        c.drawRect(rf, p)
-        p.shader = null
+        if (!keysLayer) {
+            // back layer: the theme colours and the still picture (a playing video sits on top of this layer)
+            p.style = Paint.Style.FILL
+            p.shader = LinearGradient(0f, 0f, 0f, h, th.bgTop, th.bgBottom, Shader.TileMode.CLAMP)
+            c.drawRect(rf, p)
+            p.shader = null
+            val wb = bg
+            if (wb != null) {
+                val sc = maxOf(w / wb.width, h / wb.height)
+                val sw = w / sc
+                val sh = h / sc
+                srcR.set(((wb.width - sw) / 2f).toInt(), ((wb.height - sh) / 2f).toInt(), ((wb.width + sw) / 2f).toInt(), ((wb.height + sh) / 2f).toInt())
+                c.drawBitmap(wb, srcR, rf, bgPaint)
+            }
+            c.restore()
+            return
+        }
 
-        val wb = bg
-        if (wb != null) {
-            val sc = maxOf(w / wb.width, h / wb.height)
-            val sw = w / sc
-            val sh = h / sc
-            srcR.set(((wb.width - sw) / 2f).toInt(), ((wb.height - sh) / 2f).toInt(), ((wb.width + sw) / 2f).toInt(), ((wb.height + sh) / 2f).toInt())
-            c.drawBitmap(wb, srcR, rf, bgPaint)
+        // front layer: the dimming, the effect and the keys
+        if (hasMedia) {
             p.style = Paint.Style.FILL
             p.color = Color.argb(dim * 255 / 100, 0, 0, 0)
             c.drawRect(rf, p)
@@ -658,6 +813,187 @@ private class ThemePreview(ctx: Context) : View(ctx) {
         c.drawRoundRect(d * 0.5f, d * 0.5f, w - d * 0.5f, h - d * 0.5f, d * 20f, d * 20f, p)
         p.style = Paint.Style.FILL
     }
+}
+
+/** The big preview: theme colours + photo at the back, the playing live video in the middle, dimming and keys in front. */
+private class PreviewStack(ctx: Context) : FrameLayout(ctx) {
+    private val back = ThemePreview(ctx, false)
+    private val video = PreviewVideo(ctx)
+    private val front = ThemePreview(ctx, true)
+
+    init {
+        addView(back, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        addView(video, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        addView(front, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+    }
+
+    fun set(t: KbTheme) {
+        back.set(t)
+        front.set(t)
+    }
+
+    /** [bmp] = still picture behind the keys, [vid] = a video file to play behind the keys (either may be null). */
+    fun show(bmp: Bitmap?, vid: File?) {
+        back.setBg(bmp)
+        front.setMedia(bmp != null || vid != null)
+        video.setFile(vid)
+    }
+
+    fun resume() = video.resumePlay()
+
+    fun pause() = video.pausePlay()
+}
+
+/** Plays one video file, muted and looping, centre-cropped with rounded corners (same look as the keyboard background). */
+private class PreviewVideo(ctx: Context) : TextureView(ctx), TextureView.SurfaceTextureListener {
+    private var mp: MediaPlayer? = null
+    private var surface: Surface? = null
+    private var prepared = false
+    private var vw = 0
+    private var vh = 0
+    private var file: File? = null
+    private var key = ""
+    private var paused = false
+    private val m = Matrix()
+
+    init {
+        surfaceTextureListener = this
+        isOpaque = false
+        visibility = GONE
+        val r = ctx.resources.displayMetrics.density * 20f
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, r)
+            }
+        }
+        clipToOutline = true
+    }
+
+    fun setFile(f: File?) {
+        val k = if (f == null) "" else f.path + "|" + f.length() + "|" + f.lastModified()
+        if (k == key) {
+            if (f != null) play()
+            return
+        }
+        release()
+        key = k
+        file = f
+        visibility = if (f == null) GONE else VISIBLE
+        if (f != null) play()
+    }
+
+    fun resumePlay() {
+        paused = false
+        play()
+    }
+
+    fun pausePlay() {
+        paused = true
+        try {
+            mp?.takeIf { prepared && it.isPlaying }?.pause()
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun play() {
+        val f = file ?: return
+        if (paused) return
+        if (surfaceTexture == null) return // onSurfaceTextureAvailable calls this again
+        val p = mp
+        if (p == null) {
+            create(f)
+        } else if (prepared) {
+            try {
+                if (!p.isPlaying) p.start()
+            } catch (e: Exception) {
+                release()
+            }
+        }
+    }
+
+    private fun create(f: File) {
+        val st = surfaceTexture ?: return
+        try {
+            val p = MediaPlayer()
+            val s = Surface(st)
+            surface = s
+            p.setDataSource(f.path)
+            p.setSurface(s)
+            p.isLooping = true
+            p.setVolume(0f, 0f)
+            p.setOnVideoSizeChangedListener { _, w, h ->
+                vw = w
+                vh = h
+                fit()
+            }
+            p.setOnPreparedListener {
+                prepared = true
+                if (!paused) {
+                    try {
+                        it.start()
+                    } catch (e: Exception) {
+                        release()
+                    }
+                }
+            }
+            p.setOnErrorListener { _, _, _ ->
+                release()
+                true
+            }
+            mp = p
+            p.prepareAsync()
+        } catch (e: Exception) {
+            release()
+        }
+    }
+
+    private fun release() {
+        prepared = false
+        try {
+            mp?.release()
+        } catch (e: Exception) {
+        }
+        mp = null
+        try {
+            surface?.release()
+        } catch (e: Exception) {
+        }
+        surface = null
+    }
+
+    private fun fit() {
+        if (vw <= 0 || vh <= 0 || width <= 0 || height <= 0) return
+        val vr = vw.toFloat() / vh
+        val r = width.toFloat() / height
+        m.reset()
+        if (vr > r) m.setScale(vr / r, 1f, width / 2f, height / 2f) else m.setScale(1f, r / vr, width / 2f, height / 2f)
+        setTransform(m)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
+        super.onSizeChanged(w, h, ow, oh)
+        fit()
+    }
+
+    override fun onDetachedFromWindow() {
+        release()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+        play()
+    }
+
+    override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
+        fit()
+    }
+
+    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+        release()
+        return true
+    }
+
+    override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
 }
 
 /** One theme in the grid: a small keyboard, its name, and a badge showing whether it is in use or still to be taken. */
