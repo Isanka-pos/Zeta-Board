@@ -759,15 +759,10 @@ class KeyboardHost(ctx: Context, private val out: Output) : LinearLayout(ctx), K
         }
     }
 
-    /** Switches Sinhala typing to [mode] (SinMode.OFF / PHONETIC / WIJESEKARA) and says so on the toolbar. */
+    /** Switches Sinhala typing to [mode] (SinMode.OFF / PHONETIC / WIJESEKARA). The keys show the change, so nothing is said on the toolbar. */
     private fun setSinMode(mode: Int) {
         SinMode.set(context, mode)
         kv.onSinglishChanged()
-        when (mode) {
-            SinMode.PHONETIC -> showStatus("Sinhala phonetic ON \u2014 type mama gedara yanawa", KeyboardView.STATUS_INFO, 2600)
-            SinMode.WIJESEKARA -> showStatus("Sinhala Wijesekara ON \u2014 hold a key for more letters", KeyboardView.STATUS_INFO, 2600)
-            else -> showStatus("Sinhala typing OFF \u2014 English keys", KeyboardView.STATUS_INFO, 1800)
-        }
     }
 
     /** The Singlish tool: phonetic typing on or off. */

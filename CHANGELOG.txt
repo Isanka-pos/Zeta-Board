@@ -1,3 +1,10 @@
+- IMPROVED: Release builds are protected with ProGuard / R8: unused code is dropped and class/method names are scrambled, so a decompiled APK is much harder to read and the API keys are much harder to find
+- NEW: The app now notices if it was opened in an APK editor and resigned with a different key (a changed, repackaged copy). That copy shows a warning screen instead of the app, and its keyboard shows a warning instead of working
+- CHANGED: New icon for Style Name Generator
+- IMPROVED: Shift, backspace and enter keys are now solid colour over photo / video backgrounds
+- CHANGED: No more message on the toolbar when Sinhala typing is switched on or off
+- IMPROVED: Tool list: bigger icons with the name under each one (long names wrap to two lines). The list scrolls when everything does not fit. The top bar icons are bigger too
+- IMPROVED: Faster app menu: choosing a category now opens straight away (lighter animation, only the changed menu rows are redrawn)
 - NEW: Protect (hidden messages). Add the Protect tool (shield icon) from the tool list to the toolbar. Type a message and tap it: the box looks empty, so you can send a message only Zeta Board users can read. When someone with Zeta Board copies it and opens the keyboard, the message shows on the toolbar in place of the icons (long messages end with ...). Tap it to type it into the box. It hides a message, it is not strong encryption. Works only on the keyboard, never in password fields
 - NEW: Style Name Generator. Type any name and get many stylish versions (fancy letters, decorations, random mixes). Tap one to copy it or share it. Open it from the side menu or from Typing & Fonts
 - IMPROVED: New bold 3D download window for live wallpapers in the Theme Store: a thick 3D arrow turns and fills up as the download goes, with a big percent, a raised progress bar and a raised Cancel button

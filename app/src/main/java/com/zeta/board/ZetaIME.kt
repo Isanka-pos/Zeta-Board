@@ -2,9 +2,14 @@ package com.zeta.board
 
 import android.content.ClipboardManager
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.net.Uri
 import android.inputmethodservice.InputMethodService
 import android.text.InputType
@@ -435,7 +440,36 @@ class ZetaIME : InputMethodService() {
         }
     }
 
+    /** Shown instead of the real keyboard when this install's signature does not match the project's: no keys, nothing typed. */
+    private fun tamperView(): View {
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.VERTICAL
+        root.gravity = Gravity.CENTER
+        root.setBackgroundColor(Color.parseColor("#0C0919"))
+        root.setPadding(dp(24), dp(20), dp(24), dp(20))
+        val title = TextView(this)
+        title.text = "This copy has been changed"
+        title.textSize = 15f
+        title.setTextColor(Color.WHITE)
+        title.typeface = Typeface.DEFAULT_BOLD
+        title.gravity = Gravity.CENTER
+        root.addView(title)
+        val body = TextView(this)
+        body.text = "This install was edited after it left the project, so the keyboard will not work. Get the official app from its GitHub releases."
+        body.textSize = 12f
+        body.setTextColor(Color.parseColor("#A59BC9"))
+        body.gravity = Gravity.CENTER
+        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        lp.topMargin = dp(8)
+        root.addView(body, lp)
+        return root
+    }
+
     private fun buildInputView(): View {
+        AntiTamper.check(this)
+        if (!AntiTamper.ok) return tamperView()
         EnSuggest.preload(this)
         val h = KeyboardHost(this, output)
         h.kv.theme = Themes.get(Prefs.getI(this, "theme", 0))

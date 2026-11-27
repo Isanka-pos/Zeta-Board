@@ -3,6 +3,7 @@ package com.zeta.board
 import android.app.Activity
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import java.io.File
 import android.content.pm.PackageManager
 import android.os.Build
@@ -60,6 +61,9 @@ class MainActivity : Activity() {
     private lateinit var menuDot: View
     private val sections = ArrayList<Pair<View, Set<String>>>()
     private var curGroup = "home"
+
+    /** True when this install's signature does not match the project's (an edited / resigned copy): the app shows a warning instead of working. */
+    private var tampered = false
     // the "update downloaded" notification was tapped: start the install once the screen is ready
     private var installRequested = false
 
@@ -79,6 +83,12 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AntiTamper.check(this)
+        if (!AntiTamper.ok) {
+            tampered = true
+            setContentView(tamperScreen())
+            return
+        }
         installRequested = intent?.getBooleanExtra("install_update", false) == true
         UpdateScheduler.schedule(this)
         ClipRepo.init(this)
@@ -201,6 +211,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (tampered) return
         Updater.foreground = true
         if (splashDone && installRequested) tryInstallRequested()
         if (UpdateStore.pending(this) == null) UpdateNotifier.cancelReady(this)
@@ -629,7 +640,7 @@ class MainActivity : Activity() {
         MenuEntry("look", "Appearance", "Themes, shapes, RGB, photo", R.drawable.ic_palette),
         MenuEntry("themestore", "Theme Store", "Get more keyboard themes", R.drawable.ic_palette),
         MenuEntry("typing", "Typing & Fonts", "Text style, key font, feel", R.drawable.ic_font),
-        MenuEntry("stylename", "Style Name Generator", "Fancy names to copy", R.drawable.ic_font),
+        MenuEntry("stylename", "Style Name Generator", "Fancy names to copy", R.drawable.ic_stylename),
         MenuEntry("clipboard", "Clipboard", "History and manager", R.drawable.ic_paste),
         MenuEntry("quicktext", "Quick Text", "Shortcuts that insert messages", R.drawable.ic_quick),
         MenuEntry("translate", "Zeta Translate", "Choose the language", R.drawable.ic_translate),
@@ -640,28 +651,24 @@ class MainActivity : Activity() {
     )
 
     private fun onMenuPick(id: String) {
+        // open the page first, then slide the menu away, so the tap feels instant
+        when (id) {
+            "sticker" -> startActivity(Intent(this, StickerMakerActivity::class.java))
+            "stylename" -> startActivity(Intent(this, StyleNameActivity::class.java))
+            "themestore" -> startActivity(Intent(this, ThemeStoreActivity::class.java))
+            else -> showGroup(id)
+        }
         sideMenu.close()
-        if (id == "sticker") {
-            startActivity(Intent(this, StickerMakerActivity::class.java))
-            return
-        }
-        if (id == "stylename") {
-            startActivity(Intent(this, StyleNameActivity::class.java))
-            return
-        }
-        if (id == "themestore") {
-            startActivity(Intent(this, ThemeStoreActivity::class.java))
-            return
-        }
-        showGroup(id)
     }
+
+    private val entryTitles: Map<String, String> by lazy { menuEntries().associate { it.id to it.title } }
 
     /** Shows only the cards that belong to the chosen category ("home" shows everything). */
     private fun showGroup(key: String) {
         val changed = key != curGroup
         curGroup = key
         sideMenu.select(key)
-        headerSub.text = if (key == "home") "Premium keyboard" else menuEntries().first { it.id == key }.title
+        headerSub.text = if (key == "home") "Premium keyboard" else (entryTitles[key] ?: key)
         var n = 0
         for ((v, g) in sections) {
             if (v === updateBanner) continue
@@ -672,11 +679,18 @@ class MainActivity : Activity() {
             }
             v.visibility = View.VISIBLE
             if (changed && !g.contains("*")) {
-                v.alpha = 0f
-                v.translationY = dp(18).toFloat()
-                v.animate().alpha(1f).translationY(0f)
-                    .setStartDelay(40L * n).setDuration(300)
-                    .setInterpolator(DecelerateInterpolator()).start()
+                // a quick fade for the first cards only; the rest just appear, so the page is never waiting on animations
+                v.animate().cancel()
+                if (n < 3) {
+                    v.alpha = 0f
+                    v.translationY = dp(8).toFloat()
+                    v.animate().alpha(1f).translationY(0f)
+                        .setStartDelay(20L * n).setDuration(160)
+                        .setInterpolator(DecelerateInterpolator()).start()
+                } else {
+                    v.alpha = 1f
+                    v.translationY = 0f
+                }
                 n++
             }
         }
@@ -786,6 +800,50 @@ class MainActivity : Activity() {
     }
 
     // ---------- helpers ----------
+
+    /** Shown instead of the whole app when this install's signature does not match the project's. */
+    private fun tamperScreen(): View {
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.VERTICAL
+        root.gravity = Gravity.CENTER
+        root.setBackgroundColor(Pal.BG)
+        root.setPadding(dp(30), dp(30), dp(30), dp(30))
+
+        val icon = ImageView(this)
+        icon.setImageResource(R.drawable.ic_warning)
+        icon.setColorFilter(Color.parseColor("#F59E0B"))
+        root.addView(icon, LinearLayout.LayoutParams(dp(56), dp(56)))
+
+        val title = tv("This copy has been changed", 19f, Color.WHITE, true)
+        title.gravity = Gravity.CENTER
+        val tlp = LinearLayout.LayoutParams(MATCH, WRAP)
+        tlp.topMargin = dp(18)
+        root.addView(title, tlp)
+
+        val body = tv(
+            "This install of Zeta Board was edited and resigned after it left the project (for example, with an APK editor). " +
+                "It will not run, so nothing it was changed to do can run either. Get the official app from the project's GitHub releases.",
+            13.5f, Pal.MUTED
+        )
+        body.gravity = Gravity.CENTER
+        val blp = LinearLayout.LayoutParams(MATCH, WRAP)
+        blp.topMargin = dp(10)
+        root.addView(body, blp)
+
+        val repo = BuildConfig.REPO.trim()
+        if (repo.isNotEmpty()) {
+            val open = pill("Open official releases") {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/$repo/releases")))
+                } catch (e: Exception) {
+                }
+            }
+            val plp = LinearLayout.LayoutParams(WRAP, WRAP)
+            plp.topMargin = dp(22)
+            root.addView(open, plp)
+        }
+        return root
+    }
 
     private fun tv(s: String, size: Float, color: Int, bold: Boolean = false): TextView {
         val t = TextView(this)

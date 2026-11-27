@@ -12,6 +12,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.os.Handler
 import android.os.Looper
+import android.view.VelocityTracker
+import android.widget.OverScroller
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -105,7 +107,7 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
         const val TILE = 3
         const val RESET = 4
         const val SLOTS = 6 // 5 pinned places + the close button
-        const val COLS = 5 // tools per row in the list
+        const val COLS = 4 // tools per row in the list (big icons, the list scrolls when it does not fit)
     }
 
     private val dm = ctx.resources.displayMetrics.density
@@ -137,6 +139,14 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
     private var dragY = 0f
     private var dropSlot = -1
 
+    // the tool list scrolls when the big icons do not all fit
+    private var scroll = 0f
+    private var scrolling = false
+    private var gridDown = false
+    private var scrollStart = 0f
+    private var vt: VelocityTracker? = null
+    private val scroller = OverScroller(ctx)
+
     private val longPress = Runnable {
         if (pressed && (tKind == PIN || tKind == TILE)) {
             if (tKind == PIN && tIdx !in pins.indices) return@Runnable
@@ -163,6 +173,8 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
     fun open() {
         pins = Tools.pins(context).toMutableList()
         resetTouch()
+        scroller.abortAnimation()
+        scroll = 0f
         invalidate()
     }
 
@@ -172,7 +184,7 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
 
     // ---------- geometry ----------
 
-    private val barH: Float get() = dp(52f)
+    private val barH: Float get() = dp(58f)
     private val hintH: Float get() = dp(26f)
     private val padX: Float get() = dp(10f)
     private val rows: Int get() = (Tools.COUNT + COLS - 1) / COLS
@@ -181,10 +193,15 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
     private fun slotCx(s: Int): Float = padX + slotW() * (s + 0.5f)
     private fun gridTop(): Float = barH + hintH
     private fun cellW(): Float = (width - 2 * padX) / COLS
-    private fun cellH(): Float = min(dp(86f), (height - gridTop() - dp(6f)) / rows).coerceAtLeast(dp(44f))
-    private fun circleR(): Float = min(min(dp(26f), cellH() * 0.33f), cellW() * 0.36f)
+    private fun circleR(): Float = min(dp(31f), cellW() * 0.36f)
+
+    /** A big round icon with the name under it (up to two lines). */
+    private fun cellH(): Float = circleR() * 2f + dp(50f)
     private fun tileCx(i: Int): Float = padX + cellW() * (i % COLS + 0.5f)
-    private fun tileCy(i: Int): Float = gridTop() + (i / COLS) * cellH() + circleR() + dp(4f)
+    private fun tileCy(i: Int): Float = gridTop() - scroll + (i / COLS) * cellH() + circleR() + dp(6f)
+
+    /** How far the list can be scrolled up (0 when everything fits). */
+    private fun maxScroll(): Float = (rows * cellH() + dp(10f) - (height - gridTop())).coerceAtLeast(0f)
 
     private fun customized(): Boolean = pins != Tools.DEFAULT
 
@@ -219,7 +236,7 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
         }
         if (x < padX || x > width - padX) return
         val col = ((x - padX) / cellW()).toInt()
-        val row = ((y - gridTop()) / cellH()).toInt()
+        val row = ((y - gridTop() + scroll) / cellH()).toInt()
         val i = row * COLS + col
         if (col in 0 until COLS && row >= 0 && i in 0 until Tools.COUNT) {
             tKind = TILE
@@ -284,6 +301,7 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
         dragId = -1
         dragPin = -1
         dropSlot = -1
+        scrolling = false
         tKind = NONE
         tIdx = -1
     }
@@ -321,9 +339,20 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 resetTouch()
+                val flinging = !scroller.isFinished
+                scroller.abortAnimation()
+                vt?.recycle()
+                vt = VelocityTracker.obtain()
+                vt?.addMovement(e)
                 downX = e.x
                 downY = e.y
+                gridDown = e.y >= gridTop()
                 hit(e.x, e.y)
+                // a touch that only stops a fling must not press a tool
+                if (flinging) {
+                    tKind = NONE
+                    tIdx = -1
+                }
                 if (tKind != NONE) {
                     pressed = true
                     if (tKind == PIN || tKind == TILE) handler.postDelayed(longPress, 380)
@@ -336,10 +365,26 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
                     dragY = e.y
                     updateDrop()
                     invalidate()
-                } else if (pressed && (abs(e.x - downX) > dp(12f) || abs(e.y - downY) > dp(12f))) {
-                    handler.removeCallbacks(longPress)
-                    pressed = false
+                } else if (scrolling) {
+                    vt?.addMovement(e)
+                    scroll = (scrollStart - (e.y - downY)).coerceIn(0f, maxScroll())
                     invalidate()
+                } else {
+                    vt?.addMovement(e)
+                    val dx = abs(e.x - downX)
+                    val dy = abs(e.y - downY)
+                    if (gridDown && dy > dp(8f) && dy > dx && maxScroll() > 0f) {
+                        handler.removeCallbacks(longPress)
+                        pressed = false
+                        scrolling = true
+                        scrollStart = scroll
+                        downY = e.y
+                        invalidate()
+                    } else if (pressed && (dx > dp(12f) || dy > dp(12f))) {
+                        handler.removeCallbacks(longPress)
+                        pressed = false
+                        invalidate()
+                    }
                 }
             }
             MotionEvent.ACTION_UP -> {
@@ -349,13 +394,28 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
                     dragY = e.y
                     updateDrop()
                     finishDrag()
+                } else if (scrolling) {
+                    val v = vt
+                    if (v != null) {
+                        v.addMovement(e)
+                        v.computeCurrentVelocity(1000, dp(4000f))
+                        val vy = v.yVelocity
+                        if (abs(vy) > dp(120f) && maxScroll() > 0f) {
+                            scroller.fling(0, scroll.toInt(), 0, (-vy).toInt(), 0, 0, 0, maxScroll().toInt())
+                            postInvalidateOnAnimation()
+                        }
+                    }
                 } else if (pressed) {
                     tap()
                 }
+                vt?.recycle()
+                vt = null
                 resetTouch()
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
+                vt?.recycle()
+                vt = null
                 resetTouch()
                 invalidate()
             }
@@ -372,6 +432,14 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         super.onSizeChanged(w, h, ow, oh)
         buildBg()
+        scroll = scroll.coerceIn(0f, maxScroll())
+    }
+
+    override fun computeScroll() {
+        if (scroller.computeScrollOffset()) {
+            scroll = scroller.currY.toFloat().coerceIn(0f, maxScroll())
+            postInvalidateOnAnimation()
+        }
     }
 
     private fun withA(color: Int, a: Int): Int = (color and 0x00FFFFFF) or (a shl 24)
@@ -433,24 +501,28 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
 
         drawBar(c)
         drawHint(c)
+        c.save()
+        c.clipRect(0f, gridTop(), width.toFloat(), height.toFloat())
         drawGrid(c)
+        drawScrollbar(c)
+        c.restore()
         drawGhost(c)
     }
 
     private fun drawBar(c: Canvas) {
         val t = th
         val cy = barH / 2f
-        val r = dp(20f)
+        val r = dp(22f)
         for (s in 0 until SLOTS) {
             val cx = slotCx(s)
             if (s == SLOTS - 1) {
                 circle(c, cx, cy, r, t.text, if (pressed && tKind == CLOSE) 110 else 70)
-                icon(c, R.drawable.ic_close, cx, cy, dp(20f), t.text)
+                icon(c, R.drawable.ic_close, cx, cy, dp(22f), t.text)
             } else if (s < pins.size) {
                 val dim = dragging && dragPin == s
                 circle(c, cx, cy, r, t.text, if (dim) 14 else 36)
                 if (pressed && !dragging && tKind == PIN && tIdx == s) circle(c, cx, cy, r, t.accent, 90)
-                toolIcon(c, pins[s], cx, cy, dp(20f), t.text, if (dim) 70 else 255)
+                toolIcon(c, pins[s], cx, cy, dp(26f), t.text, if (dim) 70 else 255)
             } else if (dragging) {
                 p.style = Paint.Style.STROKE
                 p.strokeWidth = dp(1.5f)
@@ -498,26 +570,61 @@ class ToolsPanel(ctx: Context, private val cb: Callback) : View(ctx) {
         tp.textAlign = Paint.Align.CENTER
     }
 
+    /** Fits [s] in [maxW] pixels, ending with ... when it is too long. */
+    private fun fitLine(s: String, maxW: Float): String {
+        val n = tp.breakText(s, true, maxW.coerceAtLeast(1f), null)
+        return if (n < s.length) s.substring(0, (n - 1).coerceAtLeast(0)) + "\u2026" else s
+    }
+
     private fun drawGrid(c: Canvas) {
         val t = th
         val r = circleR()
         tp.textAlign = Paint.Align.CENTER
-        tp.textSize = dp(11f)
+        tp.textSize = dp(12.5f)
+        val maxW = cellW() - dp(6f)
+        val top = gridTop()
         for (i in 0 until Tools.COUNT) {
-            val cx = tileCx(i)
             val cy = tileCy(i)
+            // rows that are scrolled out of view are skipped
+            if (cy + cellH() < top || cy - r > height) continue
+            val cx = tileCx(i)
             val dim = dragging && dragPin < 0 && dragId == i
             circle(c, cx, cy, r, t.text, if (dim) 12 else 30)
             if (pressed && !dragging && tKind == TILE && tIdx == i) circle(c, cx, cy, r, t.accent, 90)
-            toolIcon(c, i, cx, cy, r * 0.95f, t.text, if (dim) 70 else 255)
-            if (pins.contains(i)) circle(c, cx + r * 0.72f, cy - r * 0.72f, dp(4.5f), t.accent, 255)
-            tp.color = withA(t.text, if (dim) 90 else 230)
-            var label = Tools.name(i)
-            val maxW = cellW() - dp(6f)
-            val n = tp.breakText(label, true, maxW, null)
-            if (n < label.length) label = label.substring(0, (n - 1).coerceAtLeast(0)) + "\u2026"
-            c.drawText(label, cx, cy + r + dp(15f), tp)
+            toolIcon(c, i, cx, cy, r * 1.15f, t.text, if (dim) 70 else 255)
+            if (pins.contains(i)) circle(c, cx + r * 0.72f, cy - r * 0.72f, dp(5f), t.accent, 255)
+            tp.color = withA(t.text, if (dim) 90 else 235)
+            // the name goes under the icon; a long name wraps onto a second line
+            val label = Tools.name(i)
+            var a = label
+            var b = ""
+            if (tp.measureText(label) > maxW) {
+                val sp = label.lastIndexOf(' ')
+                if (sp > 0) {
+                    a = label.substring(0, sp)
+                    b = label.substring(sp + 1)
+                }
+            }
+            val y1 = cy + r + dp(18f)
+            c.drawText(fitLine(a, maxW), cx, y1, tp)
+            if (b.isNotEmpty()) c.drawText(fitLine(b, maxW), cx, y1 + dp(15f), tp)
         }
+    }
+
+    /** A thin handle on the right while the list can be scrolled. */
+    private fun drawScrollbar(c: Canvas) {
+        val m = maxScroll()
+        if (m <= 0f) return
+        val viewH = height - gridTop()
+        val trackH = viewH - dp(8f)
+        val barLen = (trackH * viewH / (viewH + m)).coerceAtLeast(dp(24f))
+        val y = gridTop() + dp(4f) + (trackH - barLen) * (scroll / m)
+        rect.set(width - dp(4f), y, width - dp(1.5f), y + barLen)
+        p.style = Paint.Style.FILL
+        p.color = th.text
+        p.alpha = 90
+        c.drawRoundRect(rect, dp(1.5f), dp(1.5f), p)
+        p.alpha = 255
     }
 
     private fun drawGhost(c: Canvas) {

@@ -1322,7 +1322,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
                     p.color = Color.argb(55, 0, 0, 0)
                     drawShape(c, k.r, dp(1.6f), p)
                 }
-                p.color = if (photo) withA(bg, if (t.fx != 0) 150 else 185) else bg
+                // shift, backspace and enter are solid even over a photo / video, so the picture never shows through their icons
+                val solid = k.kind == K_SHIFT || k.kind == K_DEL || k.kind == K_ENTER
+                p.color = if (!photo) bg else if (solid) withA(bg, 255) else withA(bg, if (t.fx != 0) 150 else 185)
                 drawShape(c, k.r, 0f, p)
             }
             if ((rgb and 1) != 0) drawRgbKey(c, k, isP)

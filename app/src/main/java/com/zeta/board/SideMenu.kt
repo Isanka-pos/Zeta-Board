@@ -135,9 +135,21 @@ class SideMenu(
 
     /** Highlights the category that is showing. */
     fun select(id: String) {
+        if (id == current && painted) return
+        val old = current
         current = id
-        for ((k, row) in rows) row.paint(k == current)
+        if (!painted) {
+            // first time: draw every row once
+            for ((k, row) in rows) row.paint(k == current)
+            painted = true
+            return
+        }
+        // afterwards only the two rows that changed are redrawn
+        rows[old]?.paint(false)
+        rows[id]?.paint(true)
     }
+
+    private var painted = false
 
     /** Shows or hides the red dot on a category (used for "update available"). */
     fun badge(id: String, on: Boolean) {
@@ -154,16 +166,16 @@ class SideMenu(
         panel.layoutParams = lp
         panel.translationX = -w.toFloat()
         scrim.alpha = 0f
-        panel.animate().translationX(0f).setDuration(240).setInterpolator(DecelerateInterpolator()).start()
-        scrim.animate().alpha(1f).setDuration(240).start()
+        panel.animate().translationX(0f).setDuration(200).setInterpolator(DecelerateInterpolator()).start()
+        scrim.animate().alpha(1f).setDuration(200).start()
     }
 
     fun close() {
         if (!isOpen) return
         isOpen = false
         val w = panel.width.toFloat()
-        panel.animate().translationX(-w).setDuration(200).start()
-        scrim.animate().alpha(0f).setDuration(200).withEndAction {
+        panel.animate().translationX(-w).setDuration(130).setInterpolator(android.view.animation.AccelerateInterpolator()).start()
+        scrim.animate().alpha(0f).setDuration(130).withEndAction {
             if (!isOpen) visibility = View.GONE
         }.start()
     }

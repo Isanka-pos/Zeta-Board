@@ -68,10 +68,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".LiveVoiceActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden"
-            android:exported="false" />
 
         <activity
             android:name=".MicPermissionActivity"

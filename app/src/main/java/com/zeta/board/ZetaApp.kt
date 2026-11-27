@@ -5,6 +5,7 @@ import android.app.Application
 class ZetaApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        AntiTamper.check(this)
         Crash.init(this)
         RemoteCfg.init(this)
         ScreenGuard.install(this)

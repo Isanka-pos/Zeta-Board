@@ -633,7 +633,6 @@ class MainActivity : Activity() {
         MenuEntry("quicktext", "Quick Text", "Shortcuts that insert messages", R.drawable.ic_quick),
         MenuEntry("translate", "Zeta Translate", "Choose the language", R.drawable.ic_translate),
         MenuEntry("voice", "Voice Typing", "Language and microphone", R.drawable.ic_mic),
-        MenuEntry("voicechanger", "Live Voice Changer", "Real-time voice effects", R.drawable.ic_mic),
         MenuEntry("sticker", "Sticker Maker", "Photo to WhatsApp sticker", R.drawable.ic_sticker),
         MenuEntry("updates", "Updates", "Version and what's new", R.drawable.ic_download),
         MenuEntry("about", "About", "Owner and contact", R.drawable.ic_info)
@@ -643,10 +642,6 @@ class MainActivity : Activity() {
         sideMenu.close()
         if (id == "sticker") {
             startActivity(Intent(this, StickerMakerActivity::class.java))
-            return
-        }
-        if (id == "voicechanger") {
-            startActivity(Intent(this, LiveVoiceActivity::class.java))
             return
         }
         if (id == "themestore") {
@@ -905,7 +900,6 @@ class MainActivity : Activity() {
         put(quickTextCard(), "quicktext")
         put(translateCard(), "translate")
         put(voiceCard(), "voice")
-        put(voiceChangerCard(), "voice")
         put(updatesCard(), "updates")
         put(aboutCard(), "about")
         val foot = tv("Zeta Board v" + Updater.currentName(this) + "  \u2022  Made by Isanka Dev", 12f, Pal.MUTED)
@@ -1088,17 +1082,6 @@ class MainActivity : Activity() {
     }
 
     private var micRefresh: (() -> Unit)? = null
-
-    private fun voiceChangerCard(): View {
-        val c = card("Live Voice Changer", "Change your voice in real time inside Zeta Board. Use headphones.")
-        val open = pill("Open Live Voice Changer") {
-            startActivity(Intent(this, LiveVoiceActivity::class.java))
-        }
-        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
-        lp.topMargin = dp(14)
-        c.addView(open, lp)
-        return c
-    }
 
     private fun voiceCard(): View {
         val c = card("Voice Typing", "Tap the mic on the keyboard toolbar and speak")
