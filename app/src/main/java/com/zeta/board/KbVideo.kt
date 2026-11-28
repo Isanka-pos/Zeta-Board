@@ -74,18 +74,10 @@ object KbVideo {
                 }
             }
             // make sure it really is a playable video before replacing anything
-            val r = MediaMetadataRetriever()
-            try {
-                r.setDataSource(tmp.path)
-                if (r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) != "yes") {
-                    tmp.delete()
-                    return "That file has no video"
-                }
-            } finally {
-                try {
-                    r.release()
-                } catch (e: Exception) {
-                }
+            val bad = validate(tmp)
+            if (bad != null) {
+                tmp.delete()
+                return bad
             }
             if (!tmp.renameTo(file(c))) {
                 tmp.delete()
@@ -95,7 +87,26 @@ object KbVideo {
             return null
         } catch (e: Exception) {
             tmp.delete()
+            if ((e.message ?: "").let { it.contains("ENOSPC") || it.contains("No space left", ignoreCase = true) }) {
+                return "Not enough storage space. Free some space and try again."
+            }
             return "Could not read that video"
+        }
+    }
+
+    /** Checks that [f] is a readable video file. Null = fine, otherwise a short message. Run off the main thread. */
+    fun validate(f: File): String? {
+        val r = MediaMetadataRetriever()
+        return try {
+            r.setDataSource(f.path)
+            if (r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) != "yes") "That file has no video" else null
+        } catch (e: Exception) {
+            "Could not read that video"
+        } finally {
+            try {
+                r.release()
+            } catch (e: Exception) {
+            }
         }
     }
 }

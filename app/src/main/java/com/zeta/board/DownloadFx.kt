@@ -1,84 +1,275 @@
 package com.zeta.board
 
 import android.animation.ValueAnimator
+import android.app.Activity
+import android.app.Dialog
 import android.content.Context
-import android.graphics.Camera
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.CornerPathEffect
 import android.graphics.LinearGradient
-import android.graphics.Matrix
+import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RadialGradient
+import android.graphics.PathMeasure
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
+import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
+import android.view.ViewOutlineProvider
+import android.view.Window
+import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
-import kotlin.math.PI
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
- * The big 3D download arrow used by the wallpaper download window.
- *
- * A thick arrow is extruded layer by layer with android.graphics.Camera, so it really turns in 3D, bobs into a glowing
- * tray, and fills with colour from the bottom as the download goes (like a tank filling up). Sparks orbit around it.
- * [spinning] = the arrow does full 360 turns (used while the wallpaper is being applied).
+ * Premium, minimal progress bar: a slim rounded track and a cyan-to-purple fill.
+ * [setProgress] takes 0..1 (the fill glides to it) or a negative value when the total size is unknown
+ * (a short soft segment slides along the track; no made-up percentage is ever shown).
+ * Its only animator runs while the view is on screen and only in the unknown-size mode.
  */
-class Download3DView(ctx: Context) : View(ctx) {
+class SmoothBar(ctx: Context) : View(ctx) {
 
-    private val d = ctx.resources.displayMetrics.density
-    private val cam = Camera()
-    private val mx = Matrix()
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val arrow = Path()
-    private val tray = Path()
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rf = RectF()
-    private var t = 0f
     private var shown = 0f
-    private var target = -1f
-    private var anim: ValueAnimator? = null
+    private var target = 0f
+    private var unknown = false
+    private var glide: ValueAnimator? = null
+    private var slide: ValueAnimator? = null
+    private var slideT = 0f
+    private var fillShader: LinearGradient? = null
+    private var shaderW = -1f
 
-    /** true = full 360 turns, false = a gentle swing. */
-    var spinning = false
+    /** Colour of the fill's far end; turns green when the download is complete. */
+    private var endColor = Pal.PURPLE
+    private var startColor = Pal.CYAN
 
-    /** 0..1 = filled that much, below 0 = unknown size (the fill loops). */
-    fun setProgress(p: Float) {
-        target = if (p < 0f) -1f else p.coerceIn(0f, 1f)
+    fun setProgress(v: Float) {
+        if (v < 0f) {
+            if (!unknown) {
+                unknown = true
+                startSlide()
+                invalidate()
+            }
+            return
+        }
+        stopSlide()
+        unknown = false
+        val t = v.coerceIn(0f, 1f)
+        if (t == target && glide != null) return
+        target = t
+        glide?.cancel()
+        val g = ValueAnimator.ofFloat(shown, t)
+        g.duration = 280
+        g.interpolator = DecelerateInterpolator()
+        g.addUpdateListener {
+            shown = it.animatedValue as Float
+            invalidate()
+        }
+        g.start()
+        glide = g
     }
 
-    private fun lerp(a: Int, b: Int, f: Float): Int {
-        val x = f.coerceIn(0f, 1f)
-        val r = (Color.red(a) + (Color.red(b) - Color.red(a)) * x).toInt()
-        val g = (Color.green(a) + (Color.green(b) - Color.green(a)) * x).toInt()
-        val bl = (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * x).toInt()
-        return Color.rgb(r, g, bl)
+    /** Fills the bar and switches it to the green "done" colour. */
+    fun complete() {
+        stopSlide()
+        unknown = false
+        startColor = Pal.GREEN
+        endColor = Pal.GREEN
+        shaderW = -1f
+        setProgress(1f)
     }
 
-    private fun buildShapes(s: Float) {
-        arrow.reset()
-        arrow.moveTo(-0.36f * s, -0.95f * s)
-        arrow.lineTo(0.36f * s, -0.95f * s)
-        arrow.lineTo(0.36f * s, -0.08f * s)
-        arrow.lineTo(0.86f * s, -0.08f * s)
-        arrow.lineTo(0f, 0.92f * s)
-        arrow.lineTo(-0.86f * s, -0.08f * s)
-        arrow.lineTo(-0.36f * s, -0.08f * s)
-        arrow.close()
-        tray.reset()
-        tray.addRoundRect(RectF(-1.12f * s, 1.12f * s, 1.12f * s, 1.42f * s), 0.14f * s, 0.14f * s, Path.Direction.CW)
+    private fun startSlide() {
+        if (slide != null || !isAttachedToWindow) return
+        val a = ValueAnimator.ofFloat(0f, 1f)
+        a.duration = 1400
+        a.repeatCount = ValueAnimator.INFINITE
+        a.interpolator = LinearInterpolator()
+        a.addUpdateListener {
+            slideT = it.animatedValue as Float
+            invalidate()
+        }
+        a.start()
+        slide = a
+    }
+
+    private fun stopSlide() {
+        slide?.cancel()
+        slide = null
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        if (unknown) startSlide()
+    }
+
+    override fun onDetachedFromWindow() {
+        glide?.cancel()
+        glide = null
+        stopSlide()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val r = h / 2f
+        p.shader = null
+        p.color = Color.parseColor("#26204A")
+        rf.set(0f, 0f, w, h)
+        c.drawRoundRect(rf, r, r, p)
+
+        val l: Float
+        val rt: Float
+        if (unknown) {
+            val seg = w * 0.34f
+            val pos = abs(slideT * 2f - 1f)
+            l = (w - seg) * (1f - pos)
+            rt = l + seg
+        } else {
+            l = 0f
+            rt = (w * shown).coerceAtLeast(if (shown > 0f) h else 0f)
+            if (rt <= 0f) return
+        }
+        if (shaderW != w) {
+            fillShader = LinearGradient(0f, 0f, w, 0f, startColor, endColor, Shader.TileMode.CLAMP)
+            shaderW = w
+        }
+        p.shader = fillShader
+        rf.set(l, 0f, rt, h)
+        c.drawRoundRect(rf, r, r, p)
+        p.shader = null
+    }
+}
+
+/**
+ * A small download arrow with one calm movement: it drifts down a few dp and fades back up, in a loop,
+ * above a fixed base line. [setActive] false stops the animator (it is also stopped when the view leaves the screen).
+ */
+class DownloadArrowView(ctx: Context) : View(ctx) {
+
+    private val d = ctx.resources.displayMetrics.density
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val arrow = Path()
+    private var t = 0f
+    private var anim: ValueAnimator? = null
+    private var active = true
+
+    init {
+        p.style = Paint.Style.STROKE
+        p.strokeCap = Paint.Cap.ROUND
+        p.strokeJoin = Paint.Join.ROUND
+        p.strokeWidth = 2.4f * d
+        p.color = Pal.CYAN
+    }
+
+    fun setActive(on: Boolean) {
+        active = on
+        if (on) start() else stop()
+    }
+
+    private fun start() {
+        if (anim != null || !active || !isAttachedToWindow) return
         val a = ValueAnimator.ofFloat(0f, 1f)
-        a.duration = 2600
+        a.duration = 1500
         a.repeatCount = ValueAnimator.INFINITE
         a.interpolator = LinearInterpolator()
         a.addUpdateListener {
             t = it.animatedValue as Float
+            invalidate()
+        }
+        a.start()
+        anim = a
+    }
+
+    private fun stop() {
+        anim?.cancel()
+        anim = null
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        start()
+    }
+
+    override fun onDetachedFromWindow() {
+        stop()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val cx = w / 2f
+        val s = minOf(w, h)
+        // base line
+        p.alpha = 150
+        c.drawLine(cx - s * 0.30f, h * 0.86f, cx + s * 0.30f, h * 0.86f, p)
+        // arrow drifts down and fades in at the top again
+        val e = if (active) t else 0.4f
+        val dy = (e - 0.5f) * s * 0.16f
+        p.alpha = (255 * (1f - abs(e * 2f - 1f) * 0.55f)).toInt().coerceIn(80, 255)
+        arrow.reset()
+        arrow.moveTo(cx, h * 0.14f + dy)
+        arrow.lineTo(cx, h * 0.60f + dy)
+        arrow.moveTo(cx - s * 0.20f, h * 0.42f + dy)
+        arrow.lineTo(cx, h * 0.62f + dy)
+        arrow.lineTo(cx + s * 0.20f, h * 0.42f + dy)
+        c.drawPath(arrow, p)
+    }
+}
+
+/**
+ * A circle that draws its tick (or, for [error], a cross) once, with a short stroke animation.
+ * Draws with plain paths, so it costs next to nothing.
+ */
+class StatusMarkView(ctx: Context) : View(ctx) {
+
+    private val d = ctx.resources.displayMetrics.density
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val mark = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val full = Path()
+    private val part = Path()
+    private val rf = RectF()
+    private var anim: ValueAnimator? = null
+    private var f = 0f
+    private var color = Pal.GREEN
+    private var error = false
+
+    init {
+        ring.style = Paint.Style.STROKE
+        ring.strokeWidth = 2.4f * d
+        mark.style = Paint.Style.STROKE
+        mark.strokeWidth = 3.2f * d
+        mark.strokeCap = Paint.Cap.ROUND
+        mark.strokeJoin = Paint.Join.ROUND
+    }
+
+    /** Plays the tick (or cross) animation from the start. */
+    fun play(isError: Boolean) {
+        error = isError
+        color = if (isError) Color.parseColor("#F87171") else Pal.GREEN
+        anim?.cancel()
+        f = 0f
+        val a = ValueAnimator.ofFloat(0f, 1f)
+        a.duration = 520
+        a.interpolator = DecelerateInterpolator()
+        a.addUpdateListener {
+            f = it.animatedValue as Float
             invalidate()
         }
         a.start()
@@ -91,257 +282,399 @@ class Download3DView(ctx: Context) : View(ctx) {
         super.onDetachedFromWindow()
     }
 
-    /** One extruded shape: back layers first, the lit front face last. */
-    private fun extrude(
-        c: Canvas, path: Path, layers: Int, step: Float, rotX: Float, rotY: Float,
-        near: Int, far: Int, front: (Canvas) -> Unit
-    ) {
-        paint.style = Paint.Style.FILL
-        paint.shader = null
-        for (k in layers downTo 0) {
-            val z = (k - layers / 2f) * step
-            cam.save()
-            cam.rotateX(rotX)
-            cam.rotateY(rotY)
-            cam.translate(0f, 0f, z)
-            cam.getMatrix(mx)
-            cam.restore()
-            c.save()
-            c.concat(mx)
-            if (k == 0) {
-                front(c)
-            } else {
-                paint.color = lerp(near, far, k / layers.toFloat())
-                c.drawPath(path, paint)
-                // thin lighter rim on every layer keeps the edges crisp
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = d * 0.6f
-                paint.color = Color.argb(60, 255, 255, 255)
-                c.drawPath(path, paint)
-                paint.style = Paint.Style.FILL
-            }
-            c.restore()
-        }
-    }
-
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-        val s = minOf(w, h) * 0.27f
-        buildShapes(s)
+        val s = minOf(w, h)
         val cx = w / 2f
-        val cy = h * 0.46f
-        val tau = (2.0 * PI).toFloat()
-
-        // follow the real progress smoothly
-        if (target >= 0f) shown += (target - shown) * 0.12f else shown = (t * 1.15f) % 1f
-
-        val bob = (sin(t * tau * 2f) * 0.5f + 0.5f)
-        val rotY = if (spinning) t * 360f * 1.0f else sin(t * tau) * 32f
-        val rotX = -14f + sin(t * tau * 2f) * 5f
-
-        // glow behind everything
-        val glowR = s * (2.1f + 0.15f * bob)
-        paint.shader = RadialGradient(cx, cy, glowR, Color.argb(120, 139, 92, 246), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-        paint.style = Paint.Style.FILL
-        c.drawCircle(cx, cy, glowR, paint)
-        paint.shader = RadialGradient(cx, cy + s * 0.3f, glowR * 0.6f, Color.argb(90, 34, 211, 238), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-        c.drawCircle(cx, cy + s * 0.3f, glowR * 0.6f, paint)
-        paint.shader = null
-
-        // shadow on the floor: smaller and lighter while the arrow is high
-        val shW = s * (1.25f - 0.15f * bob)
-        paint.color = Color.argb((110 - 40 * bob).toInt(), 0, 0, 0)
-        rf.set(cx - shW, cy + s * 1.72f, cx + shW, cy + s * 1.72f + s * 0.26f)
-        c.drawOval(rf, paint)
-
-        sparks(c, cx, cy + s * 1.25f, s, tau, back = true)
-
-        c.save()
-        c.translate(cx, cy)
-
-        // the tray the arrow drops into
-        extrude(c, tray, 7, d * 1.5f, rotX, rotY, Color.parseColor("#0E7490"), Color.parseColor("#083344")) { cv ->
-            paint.shader = LinearGradient(0f, 1.12f * s, 0f, 1.42f * s, Color.parseColor("#67E8F9"), Color.parseColor("#06B6D4"), Shader.TileMode.CLAMP)
-            cv.drawPath(tray, paint)
-            paint.shader = null
+        val cy = h / 2f
+        val rad = s / 2f - ring.strokeWidth
+        // ring first (first 60% of the animation), mark afterwards
+        val ringF = (f / 0.6f).coerceIn(0f, 1f)
+        val markF = ((f - 0.4f) / 0.6f).coerceIn(0f, 1f)
+        ring.color = color
+        ring.alpha = 255
+        rf.set(cx - rad, cy - rad, cx + rad, cy + rad)
+        c.drawArc(rf, -90f, 360f * ringF, false, ring)
+        if (markF <= 0f) return
+        full.reset()
+        if (error) {
+            full.moveTo(cx - rad * 0.34f, cy - rad * 0.34f)
+            full.lineTo(cx + rad * 0.34f, cy + rad * 0.34f)
+            full.moveTo(cx + rad * 0.34f, cy - rad * 0.34f)
+            full.lineTo(cx - rad * 0.34f, cy + rad * 0.34f)
+        } else {
+            full.moveTo(cx - rad * 0.42f, cy + rad * 0.02f)
+            full.lineTo(cx - rad * 0.10f, cy + rad * 0.34f)
+            full.lineTo(cx + rad * 0.44f, cy - rad * 0.30f)
         }
-
-        // the arrow
-        val lift = (-0.10f + 0.20f * bob) * s
-        c.save()
-        c.translate(0f, lift)
-        val fillTop = s * 0.95f - (s * 1.9f) * shown
-        extrude(c, arrow, 14, d * 1.7f, rotX, rotY, Color.parseColor("#7C3AED"), Color.parseColor("#2E1065")) { cv ->
-            // empty face
-            paint.shader = LinearGradient(0f, -s, 0f, s, Color.parseColor("#5B4BA8"), Color.parseColor("#2E2466"), Shader.TileMode.CLAMP)
-            cv.drawPath(arrow, paint)
-            paint.shader = null
-            // filled part (from the bottom up)
-            cv.save()
-            cv.clipRect(-s, fillTop, s, s)
-            paint.shader = LinearGradient(-s, -s, s * 0.8f, s, Color.parseColor("#A5F3FC"), Color.parseColor("#22D3EE"), Shader.TileMode.CLAMP)
-            cv.drawPath(arrow, paint)
-            paint.shader = null
-            // a bright band right at the fill line
-            paint.color = Color.argb(150, 255, 255, 255)
-            cv.drawRect(-s, fillTop, s, fillTop + d * 2.5f, paint)
-            cv.restore()
-            // glossy top-left shine
-            paint.shader = LinearGradient(-s, -s, s * 0.2f, s * 0.2f, Color.argb(120, 255, 255, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-            cv.drawPath(arrow, paint)
-            paint.shader = null
-            // bold rim
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = d * 2.6f
-            paint.strokeJoin = Paint.Join.ROUND
-            paint.color = Color.argb(235, 255, 255, 255)
-            cv.drawPath(arrow, paint)
-            paint.style = Paint.Style.FILL
-        }
-        c.restore()
-        c.restore()
-
-        sparks(c, cx, cy + s * 1.25f, s, tau, back = false)
-    }
-
-    /** Small glowing dots circling the tray; the ones behind it are drawn first (smaller and dimmer). */
-    private fun sparks(c: Canvas, cx: Float, cy: Float, s: Float, tau: Float, back: Boolean) {
-        val n = 9
-        paint.style = Paint.Style.FILL
-        paint.shader = null
-        for (i in 0 until n) {
-            val a = t * tau * 1.5f + i * tau / n
-            val depth = sin(a)
-            if ((depth < 0f) != back) continue
-            val x = cx + cos(a) * s * 1.55f
-            val y = cy + depth * s * 0.38f
-            val r = d * (2.2f + 1.8f * (depth * 0.5f + 0.5f))
-            val col = if (i % 2 == 0) Color.parseColor("#22D3EE") else Color.parseColor("#C4B5FD")
-            paint.color = Color.argb(70, Color.red(col), Color.green(col), Color.blue(col))
-            c.drawCircle(x, y, r * 2.2f, paint)
-            paint.color = col
-            c.drawCircle(x, y, r, paint)
+        mark.color = color
+        if (markF >= 1f) {
+            c.drawPath(full, mark)
+        } else {
+            // draw only the first part of the path: the tick "writes" itself
+            val pm = PathMeasure(full, false)
+            part.reset()
+            var left = pm.length * markF
+            do {
+                val len = pm.length
+                if (left <= 0f) break
+                pm.getSegment(0f, minOf(left, len), part, true)
+                left -= len
+            } while (pm.nextContour())
+            c.drawPath(part, mark)
         }
     }
 }
 
 /**
- * A fat, raised progress bar: a deep groove, a glossy gradient fill with a dark underside (so it looks thick),
- * moving light stripes and a glowing tip. [setProgress] below 0 shows a block sliding to and fro.
+ * The window shown while a live wallpaper is downloaded and applied: one dark rounded card with the wallpaper's
+ * picture and name and one of these stages:
+ *   download  - real percent, MB done / total, a smooth bar, Cancel
+ *   complete  - tick + "DOWNLOAD COMPLETE" (only after the file passed the checks)
+ *   applying  - "APPLYING LIVE WALLPAPER"
+ *   applied   - tick + "LIVE WALLPAPER APPLIED"
+ *   error     - friendly message with Retry and Close (the old wallpaper stays untouched)
+ * Every method must be called on the main thread. Nothing here touches the network.
  */
-class Chunky3DBar(ctx: Context) : View(ctx) {
+internal class ApplyWindow(
+    private val act: Activity,
+    private val wp: Wallpaper,
+    private val onCancel: () -> Unit,
+    private val onRetry: () -> Unit,
+    private val onClose: () -> Unit
+) {
+    private enum class Stage { DOWNLOAD, COMPLETE, APPLYING, APPLIED, ERROR }
 
-    private val d = ctx.resources.displayMetrics.density
-    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val rf = RectF()
-    private val clip = Path()
-    private var t = 0f
-    private var shown = 0f
-    private var target = -1f
-    private var anim: ValueAnimator? = null
+    private val dialog = Dialog(act)
+    private val card: LinearLayout
+    private val thumb = ImageView(act)
+    private val heading: TextView
+    private val nameTv: TextView
+    private val iconBox: FrameLayout
+    private val arrow: DownloadArrowView
+    private val mark: StatusMarkView
+    private val pct: TextView
+    private val bar: SmoothBar
+    private val status: TextView
+    private val btnRow: LinearLayout
+    private val primaryBtn: TextView
+    private val secondaryBtn: TextView
 
-    fun setProgress(v: Float) {
-        target = if (v < 0f) -1f else v.coerceIn(0f, 1f)
+    private var stage = Stage.DOWNLOAD
+    private var shownPct = -1
+    private var closed = false
+    private val ui = android.os.Handler(android.os.Looper.getMainLooper())
+    private val autoClose = Runnable { finish() }
+
+    private fun dp(v: Int): Int = (v * act.resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun label(s: String, size: Float, color: Int, bold: Boolean): TextView {
+        val t = TextView(act)
+        t.text = s
+        t.textSize = size
+        t.setTextColor(color)
+        if (bold) t.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+        t.includeFontPadding = false
+        return t
     }
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        val a = ValueAnimator.ofFloat(0f, 1f)
-        a.duration = 1100
-        a.repeatCount = ValueAnimator.INFINITE
-        a.interpolator = LinearInterpolator()
-        a.addUpdateListener {
-            t = it.animatedValue as Float
-            invalidate()
-        }
-        a.start()
-        anim = a
-    }
-
-    override fun onDetachedFromWindow() {
-        anim?.cancel()
-        anim = null
-        super.onDetachedFromWindow()
-    }
-
-    override fun onDraw(c: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0f || h <= 0f) return
-        val depth = d * 5f
-        val bh = h - depth
-        val r = bh / 2f
-
-        // groove
-        p.style = Paint.Style.FILL
-        p.shader = null
-        p.color = Color.parseColor("#0A0719")
-        rf.set(0f, depth, w, h)
-        c.drawRoundRect(rf, r, r, p)
-        p.color = Color.parseColor("#2B2350")
-        rf.set(0f, 0f, w, bh)
-        c.drawRoundRect(rf, r, r, p)
-        p.shader = LinearGradient(0f, 0f, 0f, bh, Color.parseColor("#120D2B"), Color.parseColor("#241C4D"), Shader.TileMode.CLAMP)
-        rf.set(d * 2f, d * 2f, w - d * 2f, bh - d * 1f)
-        c.drawRoundRect(rf, r, r, p)
-        p.shader = null
-
-        // fill
-        val l: Float
-        val rt: Float
-        if (target >= 0f) {
-            shown += (target - shown) * 0.15f
-            l = 0f
-            rt = (w * shown).coerceAtLeast(bh)
+    private fun pill(text: String, filled: Boolean): TextView {
+        val t = label(text, 14f, Color.WHITE, true)
+        t.gravity = Gravity.CENTER
+        t.setPadding(dp(22), dp(12), dp(22), dp(12))
+        val g = if (filled) {
+            GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Pal.CYAN, Pal.PURPLE))
         } else {
-            val seg = w * 0.38f
-            val pos = abs(((t * 2f) % 2f) - 1f)
-            l = (w - seg) * pos
-            rt = l + seg
+            GradientDrawable().also { it.setColor(Color.parseColor("#221C45")) }
         }
-        if (target >= 0f && shown < 0.005f && target < 0.005f) return
+        g.cornerRadius = dp(14).toFloat()
+        t.background = g
+        if (filled) t.setTextColor(Color.parseColor("#0C0919"))
+        return t
+    }
 
-        // underside (the thickness)
-        p.color = Color.parseColor("#5B21B6")
-        rf.set(l, depth * 0.8f, rt, bh + depth * 0.8f)
-        c.drawRoundRect(rf, r, r, p)
-        // top face
-        rf.set(l, 0f, rt, bh)
-        p.shader = LinearGradient(0f, 0f, 0f, bh, Color.parseColor("#67E8F9"), Color.parseColor("#8B5CF6"), Shader.TileMode.CLAMP)
-        c.drawRoundRect(rf, r, r, p)
-        p.shader = null
-
-        // moving stripes + shine, kept inside the fill
-        c.save()
-        clip.reset()
-        clip.addRoundRect(rf, r, r, Path.Direction.CW)
-        c.clipPath(clip)
-        p.color = Color.argb(55, 255, 255, 255)
-        val gap = d * 22f
-        val off = t * gap
-        var x = l - gap * 2f + off
-        while (x < rt + gap) {
-            clip.reset()
-            clip.moveTo(x, bh)
-            clip.lineTo(x + d * 8f, bh)
-            clip.lineTo(x + d * 8f + bh * 0.8f, 0f)
-            clip.lineTo(x + bh * 0.8f, 0f)
-            clip.close()
-            c.drawPath(clip, p)
-            x += gap
+    init {
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setCancelable(false)
+        dialog.setCanceledOnTouchOutside(false)
+        // Back while downloading = Cancel; Back at any other moment is ignored (the apply step is very short)
+        dialog.setOnKeyListener { _, code, ev ->
+            if (code == KeyEvent.KEYCODE_BACK && ev.action == KeyEvent.ACTION_UP) {
+                if (stage == Stage.DOWNLOAD) cancelPressed() else if (stage == Stage.ERROR) finish()
+                true
+            } else false
         }
-        p.color = Color.argb(110, 255, 255, 255)
-        rf.set(l + r * 0.5f, bh * 0.14f, rt - r * 0.5f, bh * 0.44f)
-        c.drawRoundRect(rf, bh * 0.15f, bh * 0.15f, p)
-        c.restore()
 
-        // glowing tip
-        if (target >= 0f) {
-            p.shader = RadialGradient(rt - r, bh / 2f, bh, Color.argb(170, 255, 255, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-            c.drawCircle(rt - r, bh / 2f, bh, p)
-            p.shader = null
+        card = LinearLayout(act)
+        card.orientation = LinearLayout.VERTICAL
+        card.gravity = Gravity.CENTER_HORIZONTAL
+        card.setPadding(dp(24), dp(26), dp(24), dp(22))
+        val bg = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Pal.BG2, Pal.BG))
+        bg.cornerRadius = dp(28).toFloat()
+        bg.setStroke(dp(1), Pal.STROKE)
+        card.background = bg
+
+        heading = label("Downloading Live Wallpaper", 13f, Pal.MUTED, true)
+        heading.gravity = Gravity.CENTER
+        heading.letterSpacing = 0.04f
+        card.addView(heading, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        // wallpaper picture (the one the store already has in memory; no extra decoding)
+        thumb.scaleType = ImageView.ScaleType.CENTER_CROP
+        thumb.setBackgroundColor(Pal.TILE)
+        thumb.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(v: View, o: Outline) {
+                o.setRoundRect(0, 0, v.width, v.height, dp(18).toFloat())
+            }
+        }
+        thumb.clipToOutline = true
+        val tlp = LinearLayout.LayoutParams(dp(112), dp(112))
+        tlp.topMargin = dp(18)
+        card.addView(thumb, tlp)
+
+        nameTv = label(wp.name.uppercase(), 19f, Color.WHITE, true)
+        nameTv.gravity = Gravity.CENTER
+        nameTv.letterSpacing = 0.05f
+        nameTv.setSingleLine(true)
+        nameTv.ellipsize = TextUtils.TruncateAt.END
+        val nlp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        nlp.topMargin = dp(16)
+        card.addView(nameTv, nlp)
+
+        // icon slot: arrow while downloading, tick / cross afterwards
+        iconBox = FrameLayout(act)
+        arrow = DownloadArrowView(act)
+        mark = StatusMarkView(act)
+        mark.visibility = View.GONE
+        iconBox.addView(arrow, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER))
+        iconBox.addView(mark, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
+        val ilp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48))
+        ilp.topMargin = dp(10)
+        card.addView(iconBox, ilp)
+
+        pct = label("", 34f, Pal.CYAN, true)
+        pct.gravity = Gravity.CENTER
+        val plp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        plp.topMargin = dp(6)
+        card.addView(pct, plp)
+
+        bar = SmoothBar(act)
+        val blp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8))
+        blp.topMargin = dp(14)
+        card.addView(bar, blp)
+
+        status = label("Starting...", 13f, Pal.MUTED, false)
+        status.gravity = Gravity.CENTER
+        val slp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        slp.topMargin = dp(14)
+        card.addView(status, slp)
+
+        btnRow = LinearLayout(act)
+        btnRow.orientation = LinearLayout.HORIZONTAL
+        btnRow.gravity = Gravity.CENTER
+        secondaryBtn = pill("Cancel", false)
+        primaryBtn = pill("Retry", true)
+        val b1 = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        b1.rightMargin = dp(6)
+        val b2 = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        b2.leftMargin = dp(6)
+        btnRow.addView(secondaryBtn, b1)
+        btnRow.addView(primaryBtn, b2)
+        primaryBtn.visibility = View.GONE
+        secondaryBtn.setOnClickListener {
+            when (stage) {
+                Stage.DOWNLOAD -> cancelPressed()
+                Stage.ERROR -> finish()
+                else -> {}
+            }
+        }
+        primaryBtn.setOnClickListener {
+            if (stage == Stage.ERROR) {
+                onRetry()
+            }
+        }
+        val rlp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        rlp.topMargin = dp(20)
+        card.addView(btnRow, rlp)
+
+        dialog.setContentView(card)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.window?.setDimAmount(0.6f)
+        val w = (act.resources.displayMetrics.widthPixels * 0.88f).toInt().coerceAtMost(dp(360))
+        dialog.window?.setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+        val have = WallpaperStore.peekThumb(wp.id)
+        if (have != null) {
+            thumb.setImageBitmap(have)
+        } else {
+            WallpaperStore.loadThumb(act, wp) { b: Bitmap? ->
+                if (b != null && !closed) thumb.setImageBitmap(b)
+            }
+        }
+        enterDownload(true)
+    }
+
+    private fun alive(): Boolean = !act.isFinishing && !act.isDestroyed
+
+    private fun cancelPressed() {
+        secondaryBtn.isEnabled = false
+        secondaryBtn.alpha = 0.5f
+        status.text = "Cancelling..."
+        onCancel()
+    }
+
+    fun show() {
+        if (!alive()) return
+        try {
+            dialog.show()
+            // subtle fade + scale in
+            card.alpha = 0f
+            card.scaleX = 0.94f
+            card.scaleY = 0.94f
+            card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(220)
+                .setInterpolator(DecelerateInterpolator()).start()
+        } catch (e: Exception) {
+        }
+    }
+
+    // ------------------------------------------------------------ stages
+
+    private fun swapText(tv: TextView, s: String) {
+        if (tv.text.toString() == s) return
+        tv.text = s
+    }
+
+    private fun enterDownload(first: Boolean) {
+        stage = Stage.DOWNLOAD
+        shownPct = -1
+        heading.text = "Downloading Live Wallpaper"
+        heading.setTextColor(Pal.MUTED)
+        mark.visibility = View.GONE
+        arrow.visibility = View.VISIBLE
+        arrow.setActive(true)
+        pct.visibility = View.VISIBLE
+        pct.setTextColor(Pal.CYAN)
+        pct.text = ""
+        bar.visibility = View.VISIBLE
+        bar.setProgress(-1f)
+        status.text = if (first) "Connecting..." else "Trying again..."
+        status.setTextColor(Pal.MUTED)
+        btnRow.visibility = View.VISIBLE
+        primaryBtn.visibility = View.GONE
+        secondaryBtn.text = "Cancel"
+        secondaryBtn.isEnabled = true
+        secondaryBtn.alpha = 1f
+    }
+
+    /** A new attempt after an error (Retry). */
+    fun restart() {
+        if (closed) return
+        enterDownload(false)
+    }
+
+    /** Real download progress. [total] <= 0 means the server did not tell the size. */
+    fun progress(done: Long, total: Long) {
+        if (closed || stage != Stage.DOWNLOAD) return
+        if (total > 0L) {
+            val p = (done * 1000L / total).toInt().coerceIn(0, 1000)
+            bar.setProgress(p / 1000f)
+            val whole = p / 10
+            if (whole != shownPct) {
+                shownPct = whole
+                pct.text = "$whole%"
+            }
+            swapText(status, "Downloading... " + mb(done) + " / " + mb(total))
+        } else {
+            pct.text = ""
+            bar.setProgress(-1f)
+            swapText(status, "Downloading... " + mb(done))
+        }
+    }
+
+    private fun mb(b: Long): String = String.format("%.1f MB", b / 1048576.0)
+
+    /** The file is fully downloaded and passed the checks. */
+    fun downloaded() {
+        if (closed) return
+        stage = Stage.COMPLETE
+        arrow.setActive(false)
+        arrow.visibility = View.GONE
+        pct.visibility = View.GONE
+        bar.complete()
+        heading.text = "Download complete"
+        heading.setTextColor(Pal.GREEN)
+        status.text = "Your wallpaper is ready"
+        btnRow.visibility = View.GONE
+        mark.visibility = View.VISIBLE
+        mark.play(false)
+    }
+
+    fun applying() {
+        if (closed) return
+        stage = Stage.APPLYING
+        arrow.setActive(false)
+        arrow.visibility = View.GONE
+        pct.visibility = View.GONE
+        btnRow.visibility = View.GONE
+        heading.text = "APPLYING LIVE WALLPAPER"
+        heading.setTextColor(Pal.CYAN)
+        status.text = "Setting up your keyboard..."
+        mark.visibility = View.GONE
+        bar.visibility = View.VISIBLE
+        bar.setProgress(-1f)
+    }
+
+    fun applied() {
+        if (closed) return
+        stage = Stage.APPLIED
+        bar.complete()
+        heading.text = "LIVE WALLPAPER APPLIED"
+        heading.setTextColor(Pal.GREEN)
+        status.text = wp.name
+        mark.visibility = View.VISIBLE
+        mark.play(false)
+        // close by itself after a short moment, then hand control back
+        ui.postDelayed(autoClose, 1100)
+    }
+
+    fun error(message: String, canRetry: Boolean) {
+        if (closed) return
+        stage = Stage.ERROR
+        arrow.setActive(false)
+        arrow.visibility = View.GONE
+        pct.visibility = View.GONE
+        bar.visibility = View.GONE
+        heading.text = "Something went wrong"
+        heading.setTextColor(Color.parseColor("#F87171"))
+        status.text = message
+        status.setTextColor(Color.parseColor("#D8D2F0"))
+        mark.visibility = View.VISIBLE
+        mark.play(true)
+        btnRow.visibility = View.VISIBLE
+        secondaryBtn.text = "Close"
+        secondaryBtn.isEnabled = true
+        secondaryBtn.alpha = 1f
+        primaryBtn.visibility = if (canRetry) View.VISIBLE else View.GONE
+    }
+
+    /** Dismisses the window and tells the caller it is over. Safe to call twice. */
+    private fun finish() {
+        if (closed) return
+        dismiss()
+        onClose()
+    }
+
+    /** Dismisses the window only (used when the screen is closed). */
+    fun dismiss() {
+        if (closed) return
+        closed = true
+        ui.removeCallbacksAndMessages(null)
+        arrow.setActive(false)
+        try {
+            if (dialog.isShowing) dialog.dismiss()
+        } catch (e: Exception) {
         }
     }
 }

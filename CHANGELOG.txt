@@ -1,4 +1,3 @@
-- IMPROVED: Release builds are protected with ProGuard / R8: unused code is dropped and class/method names are scrambled, so a decompiled APK is much harder to read and the API keys are much harder to find
 - NEW: The app now notices if it was opened in an APK editor and resigned with a different key (a changed, repackaged copy). That copy shows a warning screen instead of the app, and its keyboard shows a warning instead of working
 - CHANGED: New icon for Style Name Generator
 - IMPROVED: Shift, backspace and enter keys are now solid colour over photo / video backgrounds

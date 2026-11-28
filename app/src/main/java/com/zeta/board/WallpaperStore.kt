@@ -1,22 +1,7 @@
 package com.zeta.board
 
 import android.app.Activity
-import android.app.Dialog
 import android.content.Context
-import android.content.res.ColorStateList
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
-import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
-import android.os.Build
-import android.view.Gravity
-import android.view.ViewGroup
-import android.view.animation.AccelerateDecelerateInterpolator
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.TextView
 import java.util.concurrent.atomic.AtomicBoolean
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -25,14 +10,19 @@ import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
 import org.json.JSONObject
+import java.io.EOFException
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.MalformedURLException
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.UnknownHostException
 import java.util.concurrent.Executors
+import javax.net.ssl.SSLException
 
 /** One wallpaper from the Zeta wallpaper server. [thumb] and [full] are complete https links. */
 class Wallpaper(
@@ -52,8 +42,8 @@ class Wallpaper(
  * Talks to the Zeta wallpaper server (see the zeta-wallpaper-server folder).
  *  - fetchList:  the list of wallpapers (saved on the phone, so it still shows without internet)
  *  - loadThumb:  small preview pictures (kept in memory and on disk)
- *  - applyToKeyboard: downloads one wallpaper and makes it the keyboard background (the same background the
- *                "Choose photo" button in the app sets)
+ *  - applyToKeyboard: downloads one wallpaper (with the progress window in DownloadFx.kt) and makes it the keyboard
+ *                background (the same background the "Choose photo" button in the app sets)
  * Every network call runs on a background thread and answers on the main thread.
  */
 object WallpaperStore {
@@ -352,266 +342,239 @@ object WallpaperStore {
         return f.exists() && f.length() > 0L
     }
 
-    private class Cancelled : Exception("Download cancelled")
+    /** What onDone gets when the user cancelled (no error should be shown for it). */
+    const val CANCELLED = "Download cancelled"
+
+    /** What onDone gets when another apply is already running. */
+    const val BUSY = "Another wallpaper is being applied"
+
+    private class Cancelled : Exception(CANCELLED)
+
+    /** A failure with a ready-made friendly message; [retry] tells the window whether a Retry button makes sense. */
+    private class WpFail(msg: String, val retry: Boolean = true) : Exception(msg)
+
+    /** The one apply that is running now (main thread only), so a second tap or a second screen cannot start another. */
+    private var current: ApplyJob? = null
+
+    /**
+     * One "download (if needed) + apply" run. Created by [applyToKeyboard]; the screen keeps it so it can call
+     * [cancel] when the screen is closed. All state here is touched on the main thread only.
+     */
+    class ApplyJob internal constructor(
+        private val app: Context,
+        private val w: Wallpaper,
+        private val onDone: (String?) -> Unit
+    ) {
+        private var flag = AtomicBoolean(false)
+        private var win: ApplyWindow? = null
+        private var over = false
+        private var running = false
+        private var detached = false
+        private var lastErr: String? = null
+
+        internal fun begin(c: Context) {
+            if (w.video && c is Activity) {
+                val wn = ApplyWindow(c, w, { flag.set(true) }, { retry() }, { finish(lastErr) })
+                win = wn
+                wn.show()
+            }
+            launch()
+        }
+
+        /** Stops a download that is still running and removes the window. Called when the screen is closed. */
+        fun cancel() {
+            if (over) return
+            detached = true
+            flag.set(true)
+            win?.dismiss()
+            win = null
+            // nothing running (e.g. an error was on screen): release the "one apply at a time" lock right away
+            if (!running) finish(CANCELLED)
+        }
+
+        private fun retry() {
+            if (over || running) return
+            win?.restart()
+            launch()
+        }
+
+        private fun finish(err: String?) {
+            if (over) return
+            over = true
+            if (current === this) current = null
+            onDone(err)
+        }
+
+        private fun launch() {
+            running = true
+            val f = AtomicBoolean(false)
+            flag = f
+            val wn = win
+            Thread {
+                var err: String? = null
+                var canRetry = true
+                try {
+                    runApply(app, w, f, wn)
+                } catch (e: Exception) {
+                    err = explain(e)
+                    canRetry = e !is WpFail || e.retry
+                }
+                if (err == null) Stats.event(app, "wallpaper_apply", w.id)
+                val msg = err
+                val retryable = canRetry
+                main.post { result(msg, retryable) }
+            }.start()
+        }
+
+        private fun result(err: String?, canRetry: Boolean) {
+            running = false
+            if (over) return
+            val wn = win
+            if (wn == null || detached) {
+                finish(err)
+            } else if (err == null) {
+                lastErr = null
+                wn.applied()   // closes itself shortly and then reports success through finish()
+            } else if (err == CANCELLED) {
+                wn.dismiss()
+                finish(err)
+            } else {
+                lastErr = err
+                wn.error(err, canRetry)
+            }
+        }
+    }
 
     /**
      * Makes the wallpaper the keyboard background. A live wallpaper is downloaded only the first time
      * (with a progress window when [c] is an Activity) and kept on the phone, so the next Apply is instant.
-     * onDone(null) = done, otherwise a short error.
+     * onDone(null) = done, otherwise a short error ([CANCELLED] when the user cancelled).
+     * Returns the running job (call cancel() on it when the screen closes), or null when another apply is already
+     * running (onDone then gets a message at once).
      */
-    fun applyToKeyboard(c: Context, w: Wallpaper, onDone: (String?) -> Unit) {
-        val app = c.applicationContext
-        val cancelled = AtomicBoolean(false)
-        val needsDownload = w.video && !isDownloaded(app, w)
-        var win: ApplyWindow? = null
-        if (w.video && c is Activity) {
-            win = ApplyWindow(c, w.name, needsDownload) { cancelled.set(true) }
-            win.show()
+    fun applyToKeyboard(c: Context, w: Wallpaper, onDone: (String?) -> Unit): ApplyJob? {
+        if (current != null) {
+            onDone(BUSY)
+            return null
         }
-        val shown = win
-        Thread {
-            var err: String? = null
+        val job = ApplyJob(c.applicationContext, w, onDone)
+        current = job
+        job.begin(c)
+        return job
+    }
+
+    /** Runs on a background thread. Throws when anything fails; the wallpaper that is on the keyboard is only replaced at the very end. */
+    private fun runApply(app: Context, w: Wallpaper, cancelled: AtomicBoolean, win: ApplyWindow?) {
+        if (!w.video) {
             val tmp = File(app.cacheDir, "wp_" + w.id + ".tmp")
             try {
-                if (w.video) {
-                    val dir = videoDir(app)
-                    if (!dir.exists()) dir.mkdirs()
-                    val saved = videoFile(app, w)
-                    var attempt = 0
-                    while (true) {
-                        if (!saved.exists() || saved.length() == 0L) {
-                            val part = File(dir, w.id + ".part")
-                            try {
-                                var last = 0L
-                                download(w.full, part, KbVideo.MAX_BYTES, cancelled) { done, total ->
-                                    val now = System.currentTimeMillis()
-                                    if (shown != null && (now - last > 80L || done == total)) {
-                                        last = now
-                                        main.post { shown.progress(done, total) }
-                                    }
-                                }
-                                // the finished file only gets its real name when it is complete
-                                if (!part.renameTo(saved)) {
-                                    part.copyTo(saved, overwrite = true)
-                                    part.delete()
-                                }
-                            } catch (e: Exception) {
-                                part.delete()
-                                throw e
-                            }
-                        }
-                        if (shown != null) main.post { shown.applying() }
-                        val msg = KbVideo.save(app, Uri.fromFile(saved))
-                        if (msg == null) break
-                        // a damaged saved copy: remove it and download once more
-                        saved.delete()
-                        if (attempt >= 1) throw IllegalStateException(msg)
-                        attempt++
-                    }
-                    Prefs.setS(app, KEY_ID, w.id)
-                    Prefs.setL(app, KEY_STAMP, KbVideo.stamp(app))
-                } else {
-                    if (isAsset(w.full)) copyAsset(app, w.full, tmp) else download(w.full, tmp, 16L * 1024L * 1024L)
-                    if (!KbBg.save(app, Uri.fromFile(tmp))) throw IllegalStateException("The picture could not be read")
-                    Prefs.setS(app, KEY_ID, w.id)
-                    Prefs.setL(app, KEY_STAMP, KbBg.stamp(app))
-                }
-            } catch (e: Exception) {
-                err = friendly(e)
+                if (isAsset(w.full)) copyAsset(app, w.full, tmp) else download(w.full, tmp, 16L * 1024L * 1024L, cancelled)
+                if (!KbBg.save(app, Uri.fromFile(tmp))) throw WpFail("The picture could not be read")
+                Prefs.setS(app, KEY_ID, w.id)
+                Prefs.setL(app, KEY_STAMP, KbBg.stamp(app))
             } finally {
                 tmp.delete()
             }
-            if (err == null) Stats.event(app, "wallpaper_apply", w.id)
-            main.post {
-                shown?.close()
-                onDone(err)
-            }
-        }.start()
-    }
-
-    /**
-     * The download / apply window: a big 3D arrow that turns, bobs into a tray and fills up as the download goes,
-     * a bold percent, a thick raised progress bar and a raised Cancel button.
-     */
-    private class ApplyWindow(
-        private val act: Activity,
-        name: String,
-        downloading: Boolean,
-        private val onCancel: () -> Unit
-    ) {
-        private val dialog = Dialog(act)
-        private val root: LinearLayout
-        private val title: TextView
-        private val bar: Chunky3DBar
-        private val pct: TextView
-        private val mb: TextView
-        private val cancel: TextView
-        private val arrow: Download3DView
-
-        private fun dp(v: Int): Int = (v * act.resources.displayMetrics.density + 0.5f).toInt()
-
-        private fun round(color: Int, stroke: Int, strokeColor: Int, r: Int): GradientDrawable {
-            val g = GradientDrawable()
-            g.setColor(color)
-            g.cornerRadius = dp(r).toFloat()
-            if (stroke > 0) g.setStroke(dp(stroke), strokeColor)
-            return g
+            return
         }
 
-        /** Bold text with a solid "extruded" shadow underneath, which gives it a chunky 3D look. */
-        private fun tv(s: String, size: Float, color: Int, shadow: Int = 0): TextView {
-            val t = TextView(act)
-            t.text = s
-            t.textSize = size
-            t.setTextColor(color)
-            t.typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.BOLD)
-            if (shadow != 0) t.setShadowLayer(1f, 0f, dp(3).toFloat(), shadow)
-            return t
-        }
+        val dir = videoDir(app)
+        if (!dir.exists()) dir.mkdirs()
+        if (!dir.isDirectory) throw WpFail("Could not create the wallpaper folder")
+        val saved = videoFile(app, w)
 
-        init {
-            val purple = Color.parseColor("#8B5CF6")
-            val cyan = Color.parseColor("#22D3EE")
-            val muted = Color.parseColor("#B4ACD9")
-            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
-            dialog.setCancelable(false)
-            dialog.setCanceledOnTouchOutside(false)
+        // a saved copy that is damaged (from an older version) is replaced instead of being applied
+        if (saved.exists() && (saved.length() == 0L || KbVideo.validate(saved) != null)) saved.delete()
 
-            root = LinearLayout(act)
-            root.orientation = LinearLayout.VERTICAL
-            root.gravity = Gravity.CENTER_HORIZONTAL
-            root.setPadding(dp(22), dp(14), dp(22), dp(24))
-            val bg = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#2A1E5C"), Color.parseColor("#120D2B")))
-            bg.cornerRadius = dp(30).toFloat()
-            bg.setStroke(dp(2), purple)
-            root.background = bg
-
-            arrow = Download3DView(act)
-            arrow.setProgress(-1f)
-            root.addView(arrow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(190)))
-
-            title = tv(if (downloading) "DOWNLOADING" else "APPLYING", 21f, Color.WHITE, Color.parseColor("#5B21B6"))
-            title.gravity = Gravity.CENTER
-            title.letterSpacing = 0.12f
-            root.addView(title, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-            val nm = TextView(act)
-            nm.text = name
-            nm.textSize = 13f
-            nm.setTextColor(muted)
-            nm.gravity = Gravity.CENTER
-            nm.setSingleLine(true)
-            nm.ellipsize = android.text.TextUtils.TruncateAt.END
-            nm.setPadding(0, dp(4), 0, 0)
-            root.addView(nm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-            pct = tv("", 38f, cyan, Color.parseColor("#0E7490"))
-            pct.gravity = Gravity.CENTER
-            val plp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            plp.topMargin = dp(6)
-            root.addView(pct, plp)
-
-            bar = Chunky3DBar(act)
-            bar.setProgress(-1f)
-            val blp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(30))
-            blp.topMargin = dp(8)
-            root.addView(bar, blp)
-
-            mb = TextView(act)
-            mb.textSize = 12f
-            mb.setTextColor(muted)
-            mb.gravity = Gravity.CENTER
-            val mlp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            mlp.topMargin = dp(10)
-            root.addView(mb, mlp)
-
-            // raised button: a dark layer underneath and a lighter top that sinks a little when pressed
-            cancel = tv("CANCEL", 14f, Color.WHITE)
-            cancel.gravity = Gravity.CENTER
-            val under = round(Color.parseColor("#0B0818"), 0, 0, 18)
-            val top = round(Color.parseColor("#3B2F7A"), 2, purple, 18)
-            val ld = android.graphics.drawable.LayerDrawable(arrayOf(under, top))
-            ld.setLayerInset(1, 0, 0, 0, dp(5))
-            cancel.background = ld
-            cancel.setPadding(dp(32), dp(11), dp(32), dp(16))
-            cancel.visibility = if (downloading) android.view.View.VISIBLE else android.view.View.GONE
-            cancel.setOnClickListener {
-                cancel.isEnabled = false
-                cancel.alpha = 0.5f
-                title.text = "CANCELLING"
-                onCancel()
-            }
-            val clp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            clp.topMargin = dp(16)
-            root.addView(cancel, clp)
-
-            dialog.setContentView(root)
-            dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            val w = (act.resources.displayMetrics.widthPixels * 0.88f).toInt().coerceAtMost(dp(380))
-            dialog.window?.setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-
-        private fun alive(): Boolean =
-            !act.isFinishing && !(Build.VERSION.SDK_INT >= 17 && act.isDestroyed)
-
-        fun show() {
-            if (!alive()) return
+        var fresh = false
+        if (!saved.exists()) {
+            val part = File(dir, w.id + ".part")
             try {
-                dialog.show()
-                // pops in: tips up from the top with a little overshoot
-                root.cameraDistance = 14000f * act.resources.displayMetrics.density
-                root.pivotX = root.width / 2f
-                root.rotationX = -70f
-                root.scaleX = 0.6f
-                root.scaleY = 0.6f
-                root.alpha = 0f
-                root.post {
-                    root.pivotX = root.width / 2f
-                    root.pivotY = root.height / 2f
-                    root.animate().rotationX(0f).scaleX(1f).scaleY(1f).alpha(1f)
-                        .setDuration(520)
-                        .setInterpolator(android.view.animation.OvershootInterpolator(1.6f))
-                        .start()
+                var last = 0L
+                download(w.full, part, KbVideo.MAX_BYTES, cancelled, dir) { done, total ->
+                    val now = System.currentTimeMillis()
+                    if (win != null && (now - last > 60L || (total > 0L && done == total))) {
+                        last = now
+                        main.post { win.progress(done, total) }
+                    }
+                }
+                // complete: make sure it really is a playable video before it gets its real name
+                if (KbVideo.validate(part) != null) throw WpFail("The downloaded file is damaged. Please try again.")
+                if (cancelled.get()) throw Cancelled()
+                // the finished file only gets its real name when it is complete and valid
+                if (!part.renameTo(saved)) {
+                    part.copyTo(saved, overwrite = true)
+                    part.delete()
                 }
             } catch (e: Exception) {
+                part.delete()
+                throw e
             }
+            fresh = true
         }
 
-        fun progress(done: Long, total: Long) {
-            if (!dialog.isShowing) return
-            if (total > 0L) {
-                val p = (done * 1000L / total).toInt().coerceIn(0, 1000)
-                arrow.setProgress(p / 1000f)
-                bar.setProgress(p / 1000f)
-                pct.text = (p / 10).toString() + "%"
-                mb.text = String.format("%.1f / %.1f MB", done / 1048576.0, total / 1048576.0)
-            } else {
-                mb.text = String.format("%.1f MB", done / 1048576.0)
-            }
+        if (win != null && fresh) {
+            main.post { win.downloaded() }
+            sleepUnlessCancelled(900L, cancelled)   // lets the person see the success state
         }
+        if (cancelled.get()) throw Cancelled()
 
-        fun applying() {
-            if (!dialog.isShowing) return
-            title.text = "APPLYING"
-            arrow.setProgress(1f)
-            arrow.spinning = true
-            bar.setProgress(-1f)
-            pct.text = "100%"
-            mb.text = "Setting your wallpaper..."
-            cancel.visibility = android.view.View.GONE
+        if (win != null) main.post { win.applying() }
+        val t0 = System.currentTimeMillis()
+        // KbVideo.save checks the video again and only replaces the current keyboard video when that worked
+        val msg = KbVideo.save(app, Uri.fromFile(saved))
+        if (msg != null) throw WpFail(msg, msg != "That file has no video")
+        Prefs.setS(app, KEY_ID, w.id)
+        Prefs.setL(app, KEY_STAMP, KbVideo.stamp(app))
+        if (win != null) {
+            val shownFor = System.currentTimeMillis() - t0
+            if (shownFor < 600L) sleepUnlessCancelled(600L - shownFor, null)
         }
+    }
 
-        fun close() {
+    private fun sleepUnlessCancelled(ms: Long, cancelled: AtomicBoolean?) {
+        var left = ms
+        while (left > 0L && (cancelled == null || !cancelled.get())) {
+            val s = minOf(left, 50L)
             try {
-                if (dialog.isShowing && alive()) dialog.dismiss()
-            } catch (e: Exception) {
+                Thread.sleep(s)
+            } catch (e: InterruptedException) {
+                return
             }
+            left -= s
         }
+    }
+
+    /** Turns a failure into a short, friendly sentence for the person. */
+    private fun explain(e: Exception): String = when (e) {
+        is Cancelled -> CANCELLED
+        is WpFail -> e.message ?: "Something went wrong"
+        is UnknownHostException -> "No internet connection. Check your connection and try again."
+        is SocketTimeoutException -> "The download timed out. Please try again."
+        is ConnectException -> "Could not reach the server. Try again in a moment."
+        is MalformedURLException -> "This wallpaper's download link is not valid."
+        is SSLException -> "A secure connection to the server could not be made."
+        is SocketException, is EOFException -> "The connection was interrupted. Please try again."
+        is IOException -> if (noSpace(e)) "Not enough storage space. Free some space and try again." else "The download failed. Please try again."
+        else -> e.message ?: "Something went wrong"
+    }
+
+    private fun noSpace(e: Throwable?): Boolean {
+        var t = e
+        var n = 0
+        while (t != null && n < 5) {
+            val m = t.message ?: ""
+            if (m.contains("ENOSPC") || m.contains("No space left", ignoreCase = true)) return true
+            t = t.cause
+            n++
+        }
+        return false
     }
 
     // ---------------------------------------------------------------- network
 
     private fun open(url: String): HttpURLConnection {
+        if (!url.startsWith("https://") && !url.startsWith("http://")) throw MalformedURLException("Not a web address")
         val conn = URL(url).openConnection() as HttpURLConnection
         // generous: free hosting plans can take ~30 s to wake up
         conn.connectTimeout = 15000
@@ -635,20 +598,31 @@ object WallpaperStore {
         }
     }
 
-    /** Saves the file at [url] into [out], refusing anything bigger than [maxBytes]. */
+    /**
+     * Saves the file at [url] into [out], refusing anything bigger than [maxBytes].
+     * [spaceDir]: when given, the free space of that folder is checked first (a video needs room for itself and for
+     * the keyboard's own copy). [onProgress] gets (bytes so far, total or -1 when the server gave no size).
+     */
     private fun download(
         url: String,
         out: File,
         maxBytes: Long,
         cancelled: AtomicBoolean? = null,
+        spaceDir: File? = null,
         onProgress: ((Long, Long) -> Unit)? = null
     ) {
         val conn = open(url)
         try {
             val code = conn.responseCode
-            if (code != 200) throw IllegalStateException("Server answered $code")
+            if (code == 404 || code == 410 || code == 403) throw WpFail("This wallpaper is no longer available on the server.", false)
+            if (code in 500..599) throw WpFail("The server is unavailable right now. Please try again later.")
+            if (code != 200) throw WpFail("The server could not send this wallpaper (error $code).")
             val len = conn.contentLengthLong
-            if (len > maxBytes) throw IllegalStateException("The file is too big")
+            if (len > maxBytes) throw WpFail("The file is too big", false)
+            if (spaceDir != null) {
+                val need = (if (len > 0L) len * 2L else 24L * 1024L * 1024L) + 8L * 1024L * 1024L
+                if (spaceDir.usableSpace < need) throw WpFail("Not enough storage space. Free some space and try again.")
+            }
             val plain = conn.contentEncoding.isNullOrEmpty()
             var total = 0L
             conn.inputStream.use { input ->
@@ -659,15 +633,15 @@ object WallpaperStore {
                         val n = input.read(buf)
                         if (n < 0) break
                         total += n
-                        if (total > maxBytes) throw IllegalStateException("The file is too big")
+                        if (total > maxBytes) throw WpFail("The file is too big", false)
                         os.write(buf, 0, n)
-                        onProgress?.invoke(total, len)
+                        onProgress?.invoke(total, if (len > 0L && plain) len else -1L)
                     }
                 }
             }
-            if (total == 0L) throw IllegalStateException("The file is empty")
+            if (total == 0L) throw WpFail("The downloaded file was empty. Please try again.")
             // a cut-off download must never be kept as if it were complete
-            if (len > 0L && plain && total != len) throw IllegalStateException("The download was cut off, try again")
+            if (len > 0L && plain && total != len) throw WpFail("The download was incomplete. Please try again.")
         } catch (e: Exception) {
             out.delete()
             throw e

@@ -32,7 +32,7 @@ jobs:
         with:
           gradle-version: 8.7
       - name: Build APK
-        run: gradle assembleRelease --no-daemon --stacktrace -PverCode=${{ github.run_number }} -PgithubRepo=${{ github.repository }} -PstickerKey="${{ secrets.STICKER_KEY }}" -PwallpaperUrl="${{ vars.WALLPAPER_URL }}" -PemojimixKey="${{ secrets.EMOJIMIX_KEY }}"
+        run: gradle assembleDebug --no-daemon --stacktrace -PverCode=${{ github.run_number }} -PgithubRepo=${{ github.repository }} -PstickerKey="${{ secrets.STICKER_KEY }}" -PwallpaperUrl="${{ vars.WALLPAPER_URL }}" -PemojimixKey="${{ secrets.EMOJIMIX_KEY }}"
       - name: Publish release (used by in-app updater)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -40,7 +40,7 @@ jobs:
           REPO: ${{ github.repository }}
           FULL_ONLY: ${{ inputs.full_only }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk ZetaBoard.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ZetaBoard.apk
           python3 - <<'PY'
           import json, os
           vc = int(os.environ["VC"])

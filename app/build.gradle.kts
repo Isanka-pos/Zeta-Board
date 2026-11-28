@@ -59,11 +59,7 @@ android {
     buildTypes {
         debug { signingConfig = signingConfigs.getByName("zeta") }
         release {
-            // ProGuard / R8: removes unused code and resources, shortens and scrambles class and method names
-            // (makes decompiled output much harder to read, and the API keys above much harder to find and reuse)
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("zeta")
         }
     }

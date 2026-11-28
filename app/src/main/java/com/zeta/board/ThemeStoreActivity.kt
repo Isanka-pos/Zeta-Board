@@ -65,6 +65,7 @@ class ThemeStoreActivity : Activity() {
     private var wpError: String? = null
     private var wpFetchedAt = 0L
     private var wpBusy = false
+    private var wpJob: WallpaperStore.ApplyJob? = null
     private var alive = true
     /** True once the user tapped a wallpaper in this visit; until then the preview shows what is on the keyboard now. */
     private var wpPicked = false
@@ -124,6 +125,9 @@ class ThemeStoreActivity : Activity() {
 
     override fun onDestroy() {
         alive = false
+        // closing the screen stops a running download (its half-file is deleted; the wallpaper on the keyboard stays)
+        wpJob?.cancel()
+        wpJob = null
         super.onDestroy()
     }
 
@@ -586,17 +590,27 @@ class ThemeStoreActivity : Activity() {
         if (wpBusy || WallpaperStore.isActive(this, w)) return
         wpBusy = true
         refreshAll()
-        WallpaperStore.applyToKeyboard(this, w) { err ->
+        wpJob = WallpaperStore.applyToKeyboard(this, w) { err ->
             wpBusy = false
+            wpJob = null
             if (alive) {
-                if (err == null) {
-                    Toast.makeText(this, w.name + " applied", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "Could not apply: " + err, Toast.LENGTH_LONG).show()
+                // a live wallpaper reports its result inside the download window, so no toast is needed for it
+                if (err == WallpaperStore.CANCELLED) {
+                    Toast.makeText(this, "Download cancelled", Toast.LENGTH_SHORT).show()
+                } else if (err == WallpaperStore.BUSY) {
+                    Toast.makeText(this, err, Toast.LENGTH_SHORT).show()
+                } else if (!w.video) {
+                    if (err == null) {
+                        Toast.makeText(this, w.name + " applied", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "Could not apply: " + err, Toast.LENGTH_LONG).show()
+                    }
                 }
+                // re-reads what is on the keyboard now, so the preview and the Applied / Reset state are right
                 refreshAll()
             }
         }
+        // refused (another apply is still finishing): the callback has already run and reset wpBusy
     }
 
     private fun onResetWallpaper() {
